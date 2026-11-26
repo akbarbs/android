@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kotlin from First Principles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: frosted sidebar + one frosted reading column floating over a slow colour field. */
+:root{
+  --bg:#e6edf3; --ink:#13202b; --muted:#51616f;
+  --glass:rgba(255,255,255,.58); --glass-strong:rgba(255,255,255,.78); --stroke:rgba(255,255,255,.85); --hair:rgba(19,32,43,.12);
+  --accent:#0a7a53; --accent-soft:rgba(10,122,83,.12); --warn:#b45309; --code-bg:rgba(13,27,38,.92); --code-ink:#e6eef2;
+  --blob1:rgba(61,220,132,.55); --blob2:rgba(255,176,72,.45); --blob3:rgba(120,140,255,.40);
+  --shadow:0 18px 50px rgba(20,40,60,.14);
+  --display:"Bricolage Grotesque",system-ui,sans-serif; --body:"Literata",Georgia,serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#060d14; --ink:#e7eff3; --muted:#9db0bd;
+    --glass:rgba(255,255,255,.065); --glass-strong:rgba(18,30,40,.72); --stroke:rgba(255,255,255,.14); --hair:rgba(255,255,255,.10);
+    --accent:#5fe8a8; --accent-soft:rgba(95,232,168,.13); --warn:#fbbf24; --code-bg:rgba(0,0,0,.45); --code-ink:#e6eef2;
+    --blob1:rgba(30,160,100,.42); --blob2:rgba(200,110,30,.30); --blob3:rgba(80,90,220,.36);
+    --shadow:0 18px 60px rgba(0,0,0,.45); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#060d14; --ink:#e7eff3; --muted:#9db0bd;
+  --glass:rgba(255,255,255,.065); --glass-strong:rgba(18,30,40,.72); --stroke:rgba(255,255,255,.14); --hair:rgba(255,255,255,.10);
+  --accent:#5fe8a8; --accent-soft:rgba(95,232,168,.13); --warn:#fbbf24; --code-bg:rgba(0,0,0,.45); --code-ink:#e6eef2;
+  --blob1:rgba(30,160,100,.42); --blob2:rgba(200,110,30,.30); --blob3:rgba(80,90,220,.36);
+  --shadow:0 18px 60px rgba(0,0,0,.45); color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.65;overflow:hidden}
+.field{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+   radial-gradient(42vmax 42vmax at 8% 12%,var(--blob1),transparent 62%),
+   radial-gradient(38vmax 38vmax at 92% 22%,var(--blob2),transparent 60%),
+   radial-gradient(46vmax 46vmax at 62% 96%,var(--blob3),transparent 62%);}
+.glass{background:var(--glass);border:1px solid var(--stroke);border-radius:22px;box-shadow:var(--shadow);
+  -webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%)}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:320px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:18px;height:100%;padding:18px}
+/* the row is capped at the viewport, so the sidebar list and the reading column scroll inside it */
+.col{display:flex;flex-direction:column;min-width:0;min-height:0}
+/* sidebar */
+.side{display:flex;flex-direction:column;min-height:0;padding:18px 14px 14px}
+.brand{font-family:var(--display);font-weight:700;font-size:1.25rem;line-height:1.15;padding:0 6px;text-wrap:balance}
+.brand small{display:block;font-family:var(--mono);font-weight:400;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.search{margin:14px 0 8px;width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--hair);background:var(--glass);color:var(--ink);font:inherit;font-family:var(--display);font-size:.9rem}
+.bar{height:6px;border-radius:6px;background:var(--hair);margin:4px 6px 4px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:6px;transition:width .3s}
+.barlabel{font-family:var(--mono);font-size:.68rem;color:var(--muted);padding:0 6px 8px}
+nav{overflow:auto;min-height:0;flex:1;padding-right:4px}
+nav h4{font-family:var(--mono);font-weight:600;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 6px 6px}
+nav a{display:flex;gap:10px;align-items:baseline;padding:7px 8px;border-radius:10px;color:var(--ink);text-decoration:none;font-family:var(--display);font-size:.92rem;line-height:1.25}
+nav a .n{font-family:var(--mono);font-size:.7rem;color:var(--muted);min-width:1.6em}
+nav a:hover{background:var(--accent-soft)}
+nav a.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+nav a.read .n{color:var(--accent)}
+nav a.read .n::after{content:"✓"}
+/* main */
+.main{flex:1;min-height:0;overflow:auto;scroll-behavior:smooth;padding:0}
+.top{display:none}
+article{max-width:780px;margin:0 auto;padding:44px 40px 30px}
+article[hidden]{display:none}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(1.9rem,4vw,2.7rem);line-height:1.08;margin:.3em 0 .35em;text-wrap:balance}
+.lede{font-size:1.12rem;color:var(--muted);margin:0 0 18px;font-style:italic}
+h2{font-family:var(--display);font-weight:700;font-size:1.32rem;margin:2.1em 0 .5em;text-wrap:balance}
+h3{font-family:var(--display);font-weight:500;font-size:1.06rem;margin:1.6em 0 .4em}
+p{margin:.7em 0}
+a{color:var(--accent)}
+strong{font-weight:600}
+ul,ol{padding-left:1.3em}
+li{margin:.3em 0}
+code{font-family:var(--mono);font-size:.86em;background:var(--accent-soft);padding:.1em .35em;border-radius:6px}
+.codewrap{position:relative;margin:1.1em 0}
+pre{margin:0;background:var(--code-bg);color:var(--code-ink);border:1px solid var(--stroke);border-radius:16px;padding:16px 18px;overflow-x:auto;font-size:.82rem;line-height:1.55}
+pre code{background:none;padding:0;font-size:inherit;color:inherit}
+.copy{position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:.66rem;padding:4px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#e6eef2;cursor:pointer}
+.copy:hover{background:rgba(255,255,255,.2)}
+.hljs-keyword,.hljs-built_in,.hljs-literal{color:#7ee0b0}.hljs-string,.hljs-attr{color:#ffc27a}.hljs-comment{color:#8296a3;font-style:italic}
+.hljs-number,.hljs-meta{color:#a9b8ff}.hljs-title,.hljs-type,.hljs-name,.hljs-section{color:#8ed0ff}.hljs-tag{color:#c9d6dd}
+blockquote{margin:1.2em 0;padding:12px 16px;border-radius:14px;background:var(--glass);border:1px solid var(--stroke);border-left:4px solid var(--accent);font-size:.96rem}
+blockquote p{margin:.3em 0}
+.tablewrap{overflow-x:auto;margin:1.1em 0;border-radius:14px;border:1px solid var(--stroke);background:var(--glass)}
+table{border-collapse:collapse;width:100%;font-size:.88rem;font-family:var(--display)}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
+th{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+/* canonical map strip */
+.map{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 6px}
+.map span{font-family:var(--mono);font-size:.68rem;padding:5px 10px;border-radius:999px;border:1px solid var(--hair);color:var(--muted);background:var(--glass)}
+.map span.on{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
+.map span.arrow{border:0;background:none;padding:5px 0}
+.foot{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:44px;padding-top:20px;border-top:1px solid var(--hair);font-family:var(--display)}
+.btn{font:inherit;font-family:var(--display);font-size:.9rem;padding:9px 16px;border-radius:12px;border:1px solid var(--stroke);background:var(--glass);color:var(--ink);cursor:pointer;text-decoration:none}
+.btn:hover{background:var(--accent-soft)}
+.btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* cover */
+.parts{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:22px 0}
+.parts a{display:block;padding:14px 16px;border-radius:16px;border:1px solid var(--stroke);background:var(--glass);text-decoration:none;color:var(--ink);font-family:var(--display)}
+.parts a b{display:block;font-size:1rem}.parts a span{font-size:.82rem;color:var(--muted)}
+/* glass demo */
+.demo{position:relative;border-radius:22px;overflow:hidden;padding:26px;margin:1.2em 0;min-height:230px;
+ background:radial-gradient(circle at 20% 30%,#3ddc84,transparent 45%),radial-gradient(circle at 80% 20%,#ffb048,transparent 45%),radial-gradient(circle at 60% 90%,#6f7dff,transparent 50%),#0b1722}
+.demo .card{max-width:300px;padding:18px 20px;border-radius:24px;color:#fff;font-family:var(--display);
+ background:linear-gradient(135deg,rgba(255,255,255,.28),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.45);
+ -webkit-backdrop-filter:blur(var(--r,18px));backdrop-filter:blur(var(--r,18px));box-shadow:0 12px 30px rgba(0,0,0,.25)}
+.demo .card small{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;opacity:.85}
+.demo .card b{display:block;font-size:1.9rem;font-variant-numeric:tabular-nums;margin:4px 0}
+.demo label{display:flex;gap:10px;align-items:center;margin-top:18px;color:#fff;font-family:var(--mono);font-size:.74rem}
+.demo input{flex:1;max-width:260px}
+@media (max-width:880px){
+  body{overflow:auto}
+  .app{display:block;height:auto;padding:12px}
+  .col{display:block}
+  .side{position:fixed;inset:12px;z-index:5;display:none;background:var(--glass-strong)}
+  body.menu .side{display:flex}
+  .top{display:flex;position:sticky;top:8px;z-index:4;justify-content:space-between;align-items:center;padding:8px 10px 8px 16px;margin-bottom:12px;border-radius:16px;font-family:var(--display);font-weight:700;background:var(--glass-strong)}
+  .main{overflow:visible}
+  article{padding:26px 18px 22px}
+  .close{display:inline-block!important}
+}
+.close{display:none;align-self:flex-end}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="field"></div>
+<div class="app">
+  <aside class="side glass" id="side">
+    <button class="btn close" id="closeMenu">Close</button>
+    <div class="brand"><small>Kotlin 2.4 · the language</small>Kotlin from First Principles</div>
+    <input class="search" id="q" type="search" placeholder="Search chapters" aria-label="Search chapters">
+    <div class="bar"><i id="bar"></i></div><div class="barlabel" id="barlabel"></div>
+    <nav id="toc" aria-label="Contents"></nav>
+  </aside>
+  <div class="col">
+    <div class="top glass"><span>Kotlin from First Principles</span><button class="btn" id="openMenu">Contents</button></div>
+    <main class="main glass" id="main">
+<article id="cover"><div class="eyebrow">The language, for engineers who will build Android apps with it</div>
+
+<h1>Kotlin from First Principles</h1>
+<p class="lede">Kotlin at the depth an Android developer uses every day: null safety, functions and lambdas, classes and sealed types, collections, coroutines and Flow, and working with Java. Written against Kotlin 2.4, as of November 2026.</p>
+
+<h2>Who this is for</h2>
+<p>You can program, probably in Java, and you are about to read or write Android code in Kotlin. This book teaches the language itself and stops where the platform begins. Its companion, <a href="../kotlin/">Android from First Principles</a>, starts there.</p>
+<h2>How every chapter is built</h2>
+<p>Each chapter follows the same order, so you always know where you are:</p>
+<ol>
+<li><strong>Why it exists</strong>: the problem, and what came before.</li>
+<li><strong>Mental model</strong>: one idea to hold in your head.</li>
+<li><strong>Mechanics</strong>: the syntax and the rules, in runnable code.</li>
+<li><strong>End-to-end flow</strong>: one complete trace of what actually happens.</li>
+<li><strong>Failure modes</strong>: how it goes wrong in real code.</li>
+<li><strong>Trade-offs and when not to use it</strong>: stated plainly.</li>
+<li><strong>Production and security</strong>: what matters at scale and under audit.</li>
+<li><strong>Practice</strong>: labs, investigations and design challenges.</li>
+</ol>
+<h2>One app, one map</h2>
+<p>Every example comes from the same app as the Android books: <strong>Kosh</strong>, a wallet with accounts, transactions and money transfers. The strip at the top of each chapter is the app's architecture:</p>
+<div class="map"><span class="on">Platform</span><span class="arrow">→</span><span class="on">UI</span><span class="arrow">→</span><span class="on">State holder</span><span class="arrow">→</span><span class="on">Domain</span><span class="arrow">→</span><span class="on">Data</span><span class="arrow">→</span><span class="on">Services</span></div>
+
+<p>The highlighted layers are where that part of the language does most of its work in Kosh. No feature is taught as an island.</p>
+<h2>The four parts</h2>
+<div class="parts">
+<a href="#ch-01"><b>I · The language core</b><span>How Kotlin runs, values and control flow, null safety, functions and lambdas</span></a>
+<a href="#ch-05"><b>II · Modelling</b><span>Classes, sealed and data types, collections, extensions, generics, errors</span></a>
+<a href="#ch-11"><b>III · Concurrency</b><span>Coroutines and Flow</span></a>
+<a href="#ch-13"><b>IV · On Android</b><span>Java and the SDK, and a tested capstone</span></a>
+</div>
+<h2>Reading notes</h2>
+<p>Every sample in this book was compiled and run with <code>kotlinc</code> 2.4.20, and the output written in the comments is the output it produced. The coroutine samples use kotlinx.coroutines. Three code blocks in chapters 11 to 13 are marked as needing the Android SDK; those were checked for syntax only.</p>
+<p>Money is written in minor units throughout: <code>25_000</code> is ₹250.00. Left and right arrow keys move between chapters.</p>
+</article>
+<article id="ch-01" data-num="01" data-part="I · The language core" data-layer="all" data-title="Why Kotlin, and how it runs" hidden><div class="eyebrow">I · The language core · Chapter 1</div><h1>Why Kotlin, and how it runs</h1><p class="lede">What Kotlin is, why Android adopted it, and what happens to a line of it before a phone executes it.</p><h2>Why it exists</h2>
+<p>For years Android's Java was held at old language levels. Listeners were anonymous inner classes, background work was threads and callbacks, and <code>NullPointerException</code> was the most common crash on the platform. JetBrains designed Kotlin to run on the same virtual machine and call Java in both directions, so a team could adopt it one file at a time. Version 1.0 shipped in 2016, Google supported it officially in 2017 and declared Android Kotlin-first in 2019.</p>
+<p>Two things now exist only in Kotlin: Jetpack Compose, which is a Kotlin compiler plugin, and coroutines, which most Jetpack libraries use for asynchronous work. In Kosh, every layer of the map above is written in it.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>Kotlin is a different front end to the same machine. It compiles to the class files Java compiles to, and Android turns those into what the phone runs.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>A program</h3>
+<pre><code class="language-kotlin">fun main() {
+    val app = &quot;Kosh&quot;
+    println(&quot;Hello from $app&quot;)
+}
+</code></pre>
+<p>There are no semicolons and no wrapping class. <code>val</code> declares a value, and <code>$app</code> inside a string inserts it.</p>
+<h3>Top-level declarations</h3>
+<p>Functions and constants can sit directly in a file. The compiler puts them in a class named after the file:</p>
+<pre><code class="language-kotlin">// Money.kt
+import kotlin.math.abs
+
+const val MINOR_PER_RUPEE = 100                      // a compile-time constant
+
+fun rupees(minor: Long): String {                    // a top-level function: no class needed
+    val whole = abs(minor) / MINOR_PER_RUPEE
+    val paise = (abs(minor) % MINOR_PER_RUPEE).toString().padStart(2, '0')
+    return (if (minor &lt; 0) &quot;−&quot; else &quot;&quot;) + &quot;₹$whole.$paise&quot;
+}
+
+fun main() = println(rupees(1_248_050))              // ₹12480.50
+</code></pre>
+<pre><code>$ kotlinc Money.kt -d out
+$ javap -p out/MoneyKt.class
+public final class MoneyKt {
+  public static final int MINOR_PER_RUPEE;
+  public static final java.lang.String rupees(long);
+  public static final void main();
+  public static void main(java.lang.String[]);
+}
+</code></pre>
+<p>That output is the whole trick. A top-level function is a static method, <code>Long</code> became a primitive <code>long</code>, and Java code can call <code>MoneyKt.rupees(…)</code> without knowing Kotlin was involved.</p>
+<h3>The toolchain</h3>
+<p><code>kotlinc</code> is the compiler; the K2 compiler has been the default since Kotlin 2.0. A small runtime library, <code>kotlin-stdlib</code>, ships inside your app and holds the collection functions, coroutine support and the rest of the standard library. In an Android project you never call <code>kotlinc</code> yourself: Gradle and the Android Gradle Plugin do, as the <a href="../kotlin/#ch-03">build chapter of the Android book</a> describes.</p>
+<h2>End-to-end flow: one line, from source to a running instruction</h2>
+<ol>
+<li>The compiler parses and type-checks the file. Null safety, exhaustive <code>when</code> and type inference all happen here and cost nothing at run time.</li>
+<li>It emits JVM bytecode in <code>.class</code> files, the same format <code>javac</code> produces.</li>
+<li>R8 (or D8 in debug builds) converts the class files to DEX, Android's bytecode, and in release builds removes what is unused.</li>
+<li>The DEX files are packaged into the app bundle and signed.</li>
+<li>On the device, ART compiles DEX to machine code: ahead of time for code listed in a baseline profile, just in time for the rest.</li>
+</ol>
+<p>The phone never sees Kotlin. Anything you learn about JVM bytecode, DEX or ART applies equally to Java and Kotlin code.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Mixed Kotlin versions.</strong> A library built with a newer Kotlin than your compiler fails with "Module was compiled with an incompatible version of Kotlin". Upgrade Kotlin; do not suppress the check.</li>
+<li><strong>Compiler plugins out of step.</strong> KSP and other compiler plugins are built for a specific Kotlin version. The Compose compiler has shipped with Kotlin itself since 2.0, so that one cannot drift.</li>
+<li><strong>Advice from 2017.</strong> Synthetic view imports from <code>kotlin-android-extensions</code> are gone, and <code>GlobalScope</code> is discouraged. Check the date on anything you copy.</li>
+<li><strong>Slow builds.</strong> Kotlin compiles more slowly than Java, and annotation processing through KAPT is slower again. Prefer KSP and split the project into modules.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Kotlin gives you several ways to write the same thing, so a team needs a style guide and a linter sooner than a Java team does. Some costs are hidden: a lambda can allocate an object, and <code>Int?</code> is a boxed <code>Integer</code>. Coroutines take real time to learn well.</p>
+<p>Leave a stable Java module in Java if nobody is changing it. Mixed projects work, and converting code only for the sake of converting it buys nothing.</p>
+<h2>Production and security</h2>
+<p>Pin the Kotlin version in the version catalog and upgrade it deliberately, together with the compiler plugins that depend on it. Avoid <code>kotlin-reflect</code> in apps: it is large, and R8 cannot shrink code that is reached by reflection.</p>
+<p>Kotlin compiles to ordinary bytecode, so it is exactly as easy to decompile as Java. A <code>const val</code> is copied into every class that uses it. Neither is a place for a secret.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Compile the money file above and run <code>javap -p</code> on the result. Add a second top-level function and find it in the output.</li>
+<li><strong>Investigate.</strong> In Android Studio, open any Kotlin file and use <em>Tools → Kotlin → Show Kotlin Bytecode → Decompile</em>. Count the methods a one-line <code>data class</code> generates.</li>
+<li><strong>Challenge.</strong> Your team owns 200,000 lines of Java. Write the one-page policy that says which code moves to Kotlin, and when.</li>
+</ul></article>
+<article id="ch-02" data-num="02" data-part="I · The language core" data-layer="domain" data-title="Values, types and control flow" hidden><div class="eyebrow">I · The language core · Chapter 2</div><h1>Values, types and control flow</h1><p class="lede">Immutable by default, expressions instead of statements, and one set of number types.</p><h2>Why it exists</h2>
+<p>Java separates statements from expressions, primitives from their boxed twins, and makes every variable mutable unless you add <code>final</code>. Each of those defaults produces bugs: a variable reassigned by mistake, a branch that forgets to set a result, an <code>Integer</code> compared with <code>==</code>.</p>
+<p>Kotlin reverses the defaults. In Kosh this is the vocabulary of the domain layer: amounts, statuses and labels.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>Almost everything produces a value, and almost nothing changes after it is assigned.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Values and basic types</h3>
+<pre><code class="language-kotlin">fun main() {
+    val limit = 50_000                 // Int, inferred. val: assigned once
+    var attempts = 0                   // var: may be reassigned
+    attempts += 1
+
+    val balance: Long = 1_248_050      // minor units. Long, because money overflows Int
+    val rate = 7.25                    // Double
+    val enough = balance &gt; limit       // Boolean
+    val label = &quot;₹${balance / 100}.${balance % 100} after $attempts attempt(s), enough=$enough, rate=$rate&quot;
+    println(label)
+
+    val total: Long = balance + limit  // Long + Int is defined and gives a Long
+    // val bad: Long = limit           // does not compile: an Int is never silently a Long
+    val widened: Long = limit.toLong() // conversions are explicit
+    println(total + widened)
+
+    val note = &quot;&quot;&quot;
+        To: Asha
+        Ref: KX-88213
+    &quot;&quot;&quot;.trimIndent()                   // a raw string: no escapes, line breaks kept
+    println(note.lines().size)
+}
+</code></pre>
+<table>
+<thead><tr><th>Type</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><code>Int</code>, <code>Long</code></td><td>32-bit and 64-bit integers. Literals may use <code>_</code> as a separator.</td></tr>
+<tr><td><code>Double</code>, <code>Float</code></td><td>Floating point. Never for money.</td></tr>
+<tr><td><code>Boolean</code>, <code>Char</code>, <code>String</code></td><td>As in Java. Strings are immutable.</td></tr>
+<tr><td><code>Any</code></td><td>The root of every non-null type, like <code>Object</code>.</td></tr>
+<tr><td><code>Unit</code></td><td>What a function returns when it has nothing to return. Unlike <code>void</code>, it is a real value.</td></tr>
+<tr><td><code>Nothing</code></td><td>The type of an expression that never finishes, such as <code>throw</code>.</td></tr>
+</tbody></table>
+<p>There is one <code>Int</code> in the source. The compiler uses a primitive <code>int</code> where it can and a boxed <code>Integer</code> where it must: for <code>Int?</code> and inside generic types such as <code>List&lt;Int&gt;</code>.</p>
+<h3>if and when are expressions</h3>
+<pre><code class="language-kotlin">enum class Status { PENDING, POSTED, FAILED }
+
+fun badge(status: Status, amountMinor: Long): String {
+    val sign = if (amountMinor &lt; 0) &quot;−&quot; else &quot;+&quot;          // if is an expression: it has a value
+    val tone = when (status) {                            // so is when. Every enum case must be covered
+        Status.PENDING -&gt; &quot;grey&quot;
+        Status.POSTED -&gt; if (amountMinor &lt; 0) &quot;ink&quot; else &quot;green&quot;
+        Status.FAILED -&gt; &quot;red&quot;
+    }
+    return &quot;$sign $tone&quot;
+}
+
+fun bucket(amountMinor: Long): String = when {            // when with no subject: the first true branch wins
+    amountMinor &lt; 0 -&gt; &quot;debit&quot;
+    amountMinor == 0L -&gt; &quot;zero&quot;
+    amountMinor in 1..99_999 -&gt; &quot;small credit&quot;            // a range check
+    else -&gt; &quot;large credit&quot;
+}
+
+fun main() {
+    println(badge(Status.POSTED, 50_000))                 // + green
+    println(bucket(250_000))                              // large credit
+}
+</code></pre>
+<p>There is no ternary operator because <code>if</code> already returns a value. <code>when</code> replaces <code>switch</code> and has no fall-through.</p>
+<h3>Loops, ranges and equality</h3>
+<pre><code class="language-kotlin">fun main() {
+    for (i in 1..3) print(&quot;$i &quot;)                 // 1 2 3
+    for (i in 0..&lt;3) print(&quot;$i &quot;)                // 0 1 2
+    for (i in 10 downTo 0 step 5) print(&quot;$i &quot;)   // 10 5 0
+    println()
+
+    val names = listOf(&quot;Asha&quot;, &quot;Ravi&quot;, &quot;Meera&quot;)
+    for ((index, name) in names.withIndex()) println(&quot;$index: $name&quot;)
+
+    var retries = 3
+    while (retries &gt; 0) retries--
+
+    val a = &quot;KX-88213&quot;
+    val b = StringBuilder(&quot;KX-&quot;).append(88213).toString()   // equal text, built separately
+    println(a == b)                              // true: == calls equals()
+    println(a === b)                             // false: === asks &quot;is it the same object?&quot;
+}
+</code></pre>
+<h2>End-to-end flow: one transaction badge</h2>
+<p>Follow <code>badge(Status.POSTED, 50_000)</code> through the function above:</p>
+<ol>
+<li>The <code>if</code> evaluates to <code>"+"</code> and is assigned to <code>sign</code>.</li>
+<li>The <code>when</code> matches <code>POSTED</code>. Its branch is another <code>if</code>, which evaluates to <code>"green"</code>.</li>
+<li>The string template joins the two into <code>"+ green"</code>.</li>
+</ol>
+<p>No variable was reassigned and no branch could forget to produce a value. Now add <code>REVERSED</code> to the enum: the <code>when</code> stops compiling until you say what its colour is. The change is found at build time, at the exact line.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Integer overflow.</strong> <code>Int.MAX_VALUE + 1</code> wraps silently, as in Java. Keep money in <code>Long</code> and use <code>Math.addExact</code> where a wrong sum would matter.</li>
+<li><strong>Integer division.</strong> <code>7 / 2</code> is <code>3</code>. Dividing minor units by 100 drops the paise unless you also take the remainder.</li>
+<li><strong>Floating-point money.</strong> <code>0.1 + 0.2 == 0.3</code> is false.</li>
+<li><strong>An <code>else</code> that hides a new case.</strong> A <code>when</code> over an enum with an <code>else</code> branch keeps compiling when a constant is added. Leave the <code>else</code> out.</li>
+<li><strong><code>var</code> by habit.</strong> Start with <code>val</code>. Change it only when the compiler tells you that you reassign.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Type inference keeps code short and hides types in long chains; write the type on anything public. Expression style can be pushed too far: an <code>if</code> inside a <code>when</code> inside a template is legal and unreadable. Name the intermediate values. Explicit conversions such as <code>toLong()</code> are noise on some days and the reason a truncation bug did not ship on others.</p>
+<h2>Production and security</h2>
+<p>Store money as integer minor units in a <code>Long</code>. Convert at the boundary and nowhere else. <code>toInt()</code> on a large <code>Long</code> truncates without complaint; use <code>Math.toIntExact</code> when the value came from outside.</p>
+<p>String templates make it very easy to write <code>"token=$token"</code>. Do not build log lines from secrets or account numbers.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Write <code>fun monthLabel(month: Int): String</code> using <code>when</code> with ranges, and make it throw for anything outside 1 to 12.</li>
+<li><strong>Investigate.</strong> Print <code>Int.MAX_VALUE + 1</code>, then <code>Math.addExact(Int.MAX_VALUE, 1)</code>. Decide which one a ledger should use.</li>
+<li><strong>Challenge.</strong> Kosh must support currencies with zero and three decimal places. What changes in the "minor units in a Long" rule, and where does the conversion live?</li>
+</ul></article>
+<article id="ch-03" data-num="03" data-part="I · The language core" data-layer="ui,data" data-title="Null safety" hidden><div class="eyebrow">I · The language core · Chapter 3</div><h1>Null safety</h1><p class="lede">How Kotlin turns &quot;this might be missing&quot; into something the compiler checks.</p><h2>Why it exists</h2>
+<p>In Java, any reference can be null and the type does not say which ones are. Annotations such as <code>@Nullable</code> help tools and bind nobody. The result was a crash that could happen on any line.</p>
+<p>Kotlin splits every type in two. In Kosh the nullable half appears at the edges: a server field that may be absent, a form the user has not filled in, an extra that another app did not send.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p><code>String?</code> is a different type from <code>String</code>. The compiler will not accept the first where the second is needed until you have said what happens when it is null.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>The operators</h3>
+<pre><code class="language-kotlin">data class Payee(val name: String, val nickname: String?, val upiId: String?)
+
+fun displayName(p: Payee): String = p.nickname ?: p.name             // Elvis: the right side when the left is null
+
+fun handleLength(p: Payee): Int = p.upiId?.length ?: 0               // safe call: null if upiId is null
+
+fun requireUpi(p: Payee): String =
+    p.upiId ?: throw IllegalStateException(&quot;${p.name} has no UPI id&quot;)   // throw is an expression too
+
+fun notify(p: Payee) {
+    p.upiId?.let { id -&gt; println(&quot;Collect request sent to $id&quot;) }       // the block runs only for a non-null value
+}
+
+fun describe(p: Payee): String {
+    val id = p.upiId
+    if (id == null) return &quot;No UPI id&quot;
+    return id.uppercase()            // smart cast: past the check, id is a String
+}
+
+fun main() {
+    val asha = Payee(&quot;Asha Rao&quot;, nickname = null, upiId = &quot;asha@okbank&quot;)
+    val ravi = Payee(&quot;Ravi Kumar&quot;, nickname = &quot;Ravi&quot;, upiId = null)
+    println(&quot;${displayName(asha)} / ${displayName(ravi)}&quot;)           // Asha Rao / Ravi
+    println(&quot;${handleLength(asha)} / ${handleLength(ravi)}&quot;)         // 11 / 0
+    notify(asha); notify(ravi)                                       // one line printed
+    println(describe(ravi))
+}
+</code></pre>
+<table>
+<thead><tr><th>Syntax</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>a?.b</code></td><td><code>b</code> if <code>a</code> is not null, otherwise null</td></tr>
+<tr><td><code>a ?: b</code></td><td><code>a</code> if it is not null, otherwise <code>b</code></td></tr>
+<tr><td><code>a!!</code></td><td><code>a</code> as a non-null type; throws <code>NullPointerException</code> if you were wrong</td></tr>
+<tr><td><code>a as? T</code></td><td><code>a</code> as a <code>T</code>, or null if it is not one</td></tr>
+<tr><td><code>a?.let { … }</code></td><td>run the block with the non-null value</td></tr>
+</tbody></table>
+<p><code>!!</code> is an assertion. Each one is a claim that you can explain, to a reviewer, why the value cannot be null there.</p>
+<h3>Late initialisation, Java values and casts</h3>
+<pre><code class="language-kotlin">class Session {
+    lateinit var token: String                   // a non-null type that is assigned later
+
+    val isSignedIn: Boolean get() = ::token.isInitialized
+}
+
+fun main() {
+    val s = Session()
+    println(s.isSignedIn)                        // false
+    try { println(s.token) }                     // reading it too early throws
+    catch (e: UninitializedPropertyAccessException) { println(e.message) }
+    s.token = &quot;abc&quot;
+    println(s.isSignedIn)                        // true
+
+    val env: String? = System.getenv(&quot;KOSH_ENV&quot;) // Java cannot say whether this is null, so you decide
+    println(env ?: &quot;dev&quot;)
+
+    val extra: Any = &quot;250&quot;
+    val amount: Int? = (extra as? String)?.toIntOrNull()   // safe cast, then safe parse
+    println(amount)                              // 250
+}
+</code></pre>
+<p>A value that comes from Java has a <em>platform type</em>: the compiler does not know whether it can be null and lets you treat it either way. Declare the type yourself, as <code>env</code> does above.</p>
+<h2>End-to-end flow: a missing nickname, from JSON to the screen</h2>
+<ol>
+<li>The server omits <code>nickname</code> for a payee.</li>
+<li>The DTO declares <code>val nickname: String? = null</code>, so parsing succeeds and the property is null.</li>
+<li>The mapper copies it into the domain <code>Payee</code>, whose type also says <code>String?</code>.</li>
+<li>The row calls <code>displayName(payee)</code>. The Elvis operator returns the legal name.</li>
+</ol>
+<p>Nothing checked for null "just in case". The decision was made once, at the place where absence has a meaning, and the compiler would have rejected <code>payee.nickname.length</code> anywhere along the way.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong><code>!!</code> to make the error go away.</strong> The crash has moved, not gone.</li>
+<li><strong>Platform types trusted as non-null.</strong> A Java method returns null, you assigned it to a <code>String</code>, and the app throws on that line.</li>
+<li><strong><code>lateinit</code> read too early or too late.</strong> In a fragment, a <code>lateinit</code> binding read after <code>onDestroyView</code> is the classic case.</li>
+<li><strong>Smart casts on mutable properties.</strong> "Smart cast is impossible, because it is a mutable property that could have been changed by this time." Copy it into a local <code>val</code>, or use <code>?.let</code>.</li>
+<li><strong>Reflection-based JSON.</strong> Gson builds objects without calling the constructor and can put null into a non-null property. The crash then appears far from the cause. Use kotlinx.serialization or Moshi with generated adapters.</li>
+<li><strong><code>List&lt;String?&gt;</code> versus <code>List&lt;String&gt;?</code>.</strong> A list of maybe-strings is not a maybe-list of strings.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Nullable types everywhere give you Java back, with more punctuation. Push null to the edges: convert it to a default, a non-null type or a sealed result as soon as the value enters your code.</p>
+<p>Null says "absent" and nothing else. When the reason matters (not loaded yet, not permitted, not found) null is the wrong tool; use a sealed type from chapter 6. Between <code>lateinit</code>, a nullable property and <code>by lazy</code>, prefer <code>lazy</code> when you can compute the value and a nullable property when absence is a real state.</p>
+<h2>Production and security</h2>
+<p>Everything that arrives from outside is nullable until you have validated it: JSON, deep links, intent extras. An exported activity that does <code>intent.getStringExtra("id")!!</code> can be crashed by any app on the device.</p>
+<p>When a <code>NullPointerException</code> appears in crash reports for Kotlin code, search for three things: <code>!!</code>, a platform type and <code>lateinit</code>. It is almost always one of them.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Write <code>fun initials(p: Payee): String</code> that uses the nickname when present, and returns <code>"?"</code> for a blank name, without <code>!!</code>.</li>
+<li><strong>Investigate.</strong> Search a Kotlin codebase for <code>!!</code>. For each one, decide whether it is justified or a bug waiting.</li>
+<li><strong>Challenge.</strong> A transfer screen needs a payee that may be "not chosen yet", "loading" or "chosen". Model it without a nullable type.</li>
+</ul></article>
+<article id="ch-04" data-num="04" data-part="I · The language core" data-layer="ui,state" data-title="Functions and lambdas" hidden><div class="eyebrow">I · The language core · Chapter 4</div><h1>Functions and lambdas</h1><p class="lede">Default and named arguments, functions as values, and what inline changes.</p><h2>Why it exists</h2>
+<p>Java APIs grow overloads to simulate default values, builders to simulate named options and anonymous classes to pass behaviour. Kotlin makes all three direct. That matters on Android more than anywhere: a Compose screen is a function that takes lambdas, a click handler is a lambda, and every collection operation takes one.</p>
+<p>In Kosh, functions as values carry events from the UI up to the state holder.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>A function is a value. You can store it, pass it and return it, and braces are how you write one in place.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Declaring and calling</h3>
+<pre><code class="language-kotlin">fun fee(amountMinor: Long, percent: Double = 1.0, capMinor: Long = 2_500): Long {
+    val raw = (amountMinor * percent / 100).toLong()
+    return minOf(raw, capMinor)
+}
+
+fun double(x: Int) = x * 2                                  // single expression; the return type is inferred
+
+fun main() {
+    println(fee(100_000))                                   // 1000: defaults fill in the rest
+    println(fee(100_000, capMinor = 500))                   // 500: a named argument skips percent
+    println(fee(amountMinor = 1_000_000, percent = 0.5))    // 2500: capped
+    println(double(21))
+}
+</code></pre>
+<h3>Function types and lambdas</h3>
+<pre><code class="language-kotlin">data class Tx(val id: String, val amountMinor: Long)
+
+fun sumWhere(items: List&lt;Tx&gt;, keep: (Tx) -&gt; Boolean): Long {     // a function type as a parameter
+    var total = 0L
+    for (tx in items) if (keep(tx)) total += tx.amountMinor
+    return total
+}
+
+fun retry(times: Int, block: () -&gt; Unit) { repeat(times) { block() } }
+
+fun main() {
+    val txs = listOf(Tx(&quot;t1&quot;, 50_000), Tx(&quot;t2&quot;, -12_000), Tx(&quot;t3&quot;, 8_000))
+
+    val credits = sumWhere(txs) { it.amountMinor &gt; 0 }           // trailing lambda; `it` is its one parameter
+    val debits = sumWhere(txs, fun(tx: Tx): Boolean { return tx.amountMinor &lt; 0 })   // the same thing, long form
+    println(&quot;$credits $debits&quot;)                                  // 58000 -12000
+
+    val isLarge: (Tx) -&gt; Boolean = { tx -&gt; tx.amountMinor &gt;= 50_000 }   // a lambda held in a value
+    println(txs.filter(isLarge).map(Tx::id))                     // [t1]; Tx::id is a reference to the property
+
+    var calls = 0
+    retry(3) { calls++ }                                         // a lambda can read and change local variables
+    println(calls)                                               // 3
+}
+</code></pre>
+<p><code>(Tx) -&gt; Boolean</code> is a type like any other. When a lambda is the last argument it moves outside the parentheses, which is why <code>Column { Text("Hi") }</code> in Compose is an ordinary function call.</p>
+<h3>inline and return</h3>
+<pre><code class="language-kotlin">inline fun &lt;T&gt; timed(label: String, block: () -&gt; T): T {       // inline: the lambda body is copied to the call site
+    val start = System.nanoTime()
+    try { return block() }
+    finally { println(&quot;$label took ${(System.nanoTime() - start) / 1_000} µs&quot;) }
+}
+
+fun firstLarge(amounts: List&lt;Long&gt;): Long? {
+    amounts.forEach { if (it &gt; 100_000) return it }             // returns from firstLarge, because forEach is inline
+    return null
+}
+
+fun countLarge(amounts: List&lt;Long&gt;): Int {
+    var n = 0
+    amounts.forEach {
+        if (it &lt;= 100_000) return@forEach                       // skips this element only
+        n++
+    }
+    return n
+}
+
+fun main() {
+    val amounts = listOf(5_000L, 250_000L, 900_000L)
+    println(timed(&quot;scan&quot;) { firstLarge(amounts) })              // 250000
+    println(countLarge(amounts))                                // 2
+}
+</code></pre>
+<p>Most standard-library functions that take lambdas (<code>forEach</code>, <code>map</code>, <code>let</code>) are inline, so a plain <code>return</code> inside them leaves the enclosing function.</p>
+<h2>End-to-end flow: a tap on Send</h2>
+<ol>
+<li>The transfer screen is declared as a function with a parameter <code>onSend: () -&gt; Unit</code>.</li>
+<li>It passes that value to <code>Button(onClick = onSend)</code>, which stores it.</li>
+<li>The user taps. The framework invokes the stored function.</li>
+<li>The lambda that was passed in from the caller runs: <code>{ viewModel.send() }</code>.</li>
+</ol>
+<p>The button never learned what "send" means. State goes down as parameters and events come up as function values, which is the pattern the <a href="../kotlin/#ch-09">state hoisting chapter of the Android book</a> builds on.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Capturing too much.</strong> A lambda that mentions an activity or a view holds a reference to it. Stored in something long-lived, that is a leak.</li>
+<li><strong>Nested <code>it</code>.</strong> Two lambdas deep, <code>it</code> refers to the inner parameter. Name your parameters as soon as lambdas nest.</li>
+<li><strong>Surprising <code>return</code>.</strong> In an inline lambda it leaves the outer function; use <code>return@forEach</code> to skip one element.</li>
+<li><strong>Unnamed booleans.</strong> <code>fee(1000, true, false)</code> tells the reader nothing. Name the arguments.</li>
+<li><strong>Renaming a parameter.</strong> Callers that name an argument break. Parameter names are part of your API.</li>
+<li><strong>Allocation in hot paths.</strong> A non-inline lambda that captures a variable is a new object on each call. In code that runs every frame, that is garbage.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Higher-order functions remove duplication and can also hide control flow: a stack trace through five lambdas is harder to read than one through five named functions. Mark a function <code>inline</code> when it is small and takes a lambda; inlining a large one copies its body into every caller. When a callback needs a name and documentation, a <code>fun interface</code> (chapter 13) says more than a bare function type.</p>
+<h2>Production and security</h2>
+<p>The production question for every stored lambda is ownership: who holds it, and for how long. A callback registered with a singleton must be unregistered. Default arguments are evaluated on each call, so <code>createdAt: Long = System.currentTimeMillis()</code> does what you hope. There is little here that is specific to security.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Write <code>fun &lt;T&gt; retrying(times: Int, block: () -&gt; T): T</code> that calls <code>block</code> until it stops throwing or the attempts run out.</li>
+<li><strong>Investigate.</strong> Remove <code>inline</code> from <code>timed</code> above and try to compile a call that returns from the outer function. Read the error.</li>
+<li><strong>Challenge.</strong> Design the parameter list of a <code>TransferScreen</code> function: which parameters are values, which are functions, and which have defaults?</li>
+</ul></article>
+<article id="ch-05" data-num="05" data-part="II · Modelling" data-layer="domain,data" data-title="Classes, properties and objects" hidden><div class="eyebrow">II · Modelling · Chapter 5</div><h1>Classes, properties and objects</h1><p class="lede">Constructors, properties, interfaces, singletons and what &quot;final by default&quot; asks of you.</p><h2>Why it exists</h2>
+<p>A Java class that holds three values needs fields, a constructor, getters, setters and usually a builder. Most of that text says nothing. Kotlin folds the constructor into the class header and replaces field-plus-accessors with a property, so what remains on the page is the part that is specific to your class.</p>
+<p>In Kosh these are the domain models, the repository interfaces and the few true singletons.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>The class header is the constructor. A property is a field with a getter and a setter, and you write only the parts that differ from the default.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>A class with an invariant</h3>
+<pre><code class="language-kotlin">class Account(val id: String, openingMinor: Long = 0) {         // primary constructor; `val` makes id a property
+    var balanceMinor: Long = openingMinor
+        private set                                             // readable everywhere, writable only in here
+
+    val isOverdrawn: Boolean get() = balanceMinor &lt; 0           // computed on each read; stores nothing
+
+    init { require(id.isNotBlank()) { &quot;Account id is blank&quot; } } // runs during construction
+
+    fun deposit(minor: Long) {
+        require(minor &gt; 0) { &quot;Deposit must be positive&quot; }
+        balanceMinor = Math.addExact(balanceMinor, minor)
+    }
+}
+
+fun main() {
+    val a = Account(&quot;SB-1001&quot;, openingMinor = 5_000)            // no `new`
+    a.deposit(2_500)
+    println(&quot;${a.id} ${a.balanceMinor} ${a.isOverdrawn}&quot;)       // SB-1001 7500 false
+    // a.balanceMinor = 0                                       // does not compile: the setter is private
+}
+</code></pre>
+<p><code>balanceMinor</code> can be read by anyone and changed only through <code>deposit</code>, which checks its argument. <code>isOverdrawn</code> has a getter and no storage.</p>
+<h3>Interfaces, inheritance, objects and companions</h3>
+<pre><code class="language-kotlin">interface LimitsPolicy {
+    fun check(amountMinor: Long): String?                       // null means &quot;allowed&quot;
+    val dailyCapMinor: Long get() = 10_000_000                  // an interface can carry a default
+}
+
+open class DefaultLimits : LimitsPolicy {                       // classes are final unless marked open
+    override fun check(amountMinor: Long): String? =
+        if (amountMinor &gt; dailyCapMinor) &quot;Above the daily limit&quot; else null
+}
+
+class MinorAccountLimits : DefaultLimits() {
+    override val dailyCapMinor: Long get() = 500_000
+}
+
+object NoLimits : LimitsPolicy {                                // a singleton, created on first use
+    override fun check(amountMinor: Long): String? = null
+}
+
+class Transfer private constructor(val payeeId: String, val amountMinor: Long) {
+    companion object {                                          // where Java would use static members
+        const val MAX_NOTE_LENGTH = 80
+        fun of(payeeId: String, amountMinor: Long): Transfer? =
+            if (payeeId.isNotBlank() &amp;&amp; amountMinor &gt; 0) Transfer(payeeId, amountMinor) else null
+    }
+}
+
+fun main() {
+    println(MinorAccountLimits().check(600_000))    // Above the daily limit
+    println(NoLimits.check(600_000))                // null
+    println(Transfer.of(&quot;&quot;, 100))                   // null
+}
+</code></pre>
+<table>
+<thead><tr><th>Modifier</th><th>Visible to</th></tr></thead>
+<tbody>
+<tr><td><code>public</code> (the default)</td><td>everyone</td></tr>
+<tr><td><code>internal</code></td><td>the same module</td></tr>
+<tr><td><code>protected</code></td><td>the class and its subclasses</td></tr>
+<tr><td><code>private</code></td><td>the class, or the file for a top-level declaration</td></tr>
+</tbody></table>
+<h2>End-to-end flow: constructing an account</h2>
+<p>What happens for <code>Account("SB-1001", openingMinor = 5_000)</code>:</p>
+<ol>
+<li>The arguments are evaluated and <code>id</code> is stored as a property.</li>
+<li>Property initialisers and <code>init</code> blocks run from top to bottom, in the order they are written: <code>balanceMinor</code> is assigned, then the <code>require</code> checks the id.</li>
+<li>If the check fails the constructor throws, and no half-built object escapes.</li>
+<li>Later, <code>deposit</code> validates its amount, adds with an overflow check and writes through the private setter.</li>
+</ol>
+<p>Every rule about an account lives in the class. No caller can put it into a state the class did not agree to.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Initialisation order.</strong> An <code>init</code> block that reads a property declared below it sees zero or null. Declare before use.</li>
+<li><strong>Calling an open function from a constructor.</strong> The subclass override runs before the subclass has been initialised.</li>
+<li><strong>An <code>object</code> that holds a <code>Context</code> or a view.</strong> It lives as long as the process, and so does everything it references.</li>
+<li><strong>Global mutable state.</strong> An <code>object</code> with <code>var</code> properties is a global variable. Tests that touch it interfere with each other.</li>
+<li><strong>An expensive computed property.</strong> <code>val total get() = entries.sumOf { … }</code> looks like a field and runs on every read.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Classes are final unless you write <code>open</code>. That pushes you toward interfaces and composition, and makes inheritance a decision. Use it when there is a real "is a" relationship and you control both classes.</p>
+<p>An <code>object</code> is the easiest singleton to write and the hardest dependency to replace in a test. In an app with dependency injection, let the container own lifetimes. Use a property when the value is cheap, has no side effects and returns the same answer when asked twice; otherwise write a function.</p>
+<h2>Production and security</h2>
+<p><code>internal</code> and <code>private</code> organise code. They are not security boundaries: <code>internal</code> members are public in the bytecode under a mangled name, and reflection reaches <code>private</code> ones. A secret that must not be read does not belong in a class in the app at all.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Add <code>withdraw</code> to <code>Account</code> so the balance can never go below zero.</li>
+<li><strong>Investigate.</strong> Move the <code>init</code> block above the <code>balanceMinor</code> declaration and print the balance inside it.</li>
+<li><strong>Challenge.</strong> Kosh has a <code>FeatureFlags</code> singleton read from forty places. Design the change that makes it replaceable in tests.</li>
+</ul></article>
+<article id="ch-06" data-num="06" data-part="II · Modelling" data-layer="state,domain" data-title="Data, enum, sealed and value classes" hidden><div class="eyebrow">II · Modelling · Chapter 6</div><h1>Data, enum, sealed and value classes</h1><p class="lede">Four kinds of class that exist to make wrong states impossible to write.</p><h2>Why it exists</h2>
+<p>Most classes in an app carry data. Most bugs in how they are used are one of two kinds: two things of the same primitive type swapped by accident, or a "status" with a combination of fields that should never occur together. Java's tools for this were integer constants, strings and hope.</p>
+<p>In Kosh these four class kinds model money, identifiers, the outcome of a transfer and the state of every screen.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>Make a state that cannot happen impossible to write. <code>data</code> for a value, <code>enum</code> for a fixed set of names, <code>sealed</code> for a fixed set of shapes, <code>value</code> for a primitive that deserves its own type.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Data classes</h3>
+<pre><code class="language-kotlin">data class Money(val minor: Long, val currency: String = &quot;INR&quot;)
+
+fun main() {
+    val a = Money(25_000)
+    val b = Money(25_000)
+    println(a == b)                       // true: equals compares the constructor properties
+    println(a)                            // Money(minor=25000, currency=INR)
+    val c = a.copy(minor = 30_000)        // a changed copy; a itself is untouched
+    val (minor, currency) = c             // destructuring, by position
+    println(&quot;$minor $currency&quot;)           // 30000 INR
+    println(setOf(a, b).size)             // 1: hashCode agrees with equals
+}
+</code></pre>
+<p>Only properties in the primary constructor take part in <code>equals</code>, <code>hashCode</code>, <code>toString</code> and <code>copy</code>. <code>copy</code> is shallow: a list inside the copy is the same list.</p>
+<h3>Enum, value and sealed</h3>
+<pre><code class="language-kotlin">enum class Channel(val label: String) { UPI(&quot;UPI&quot;), IMPS(&quot;IMPS&quot;), NEFT(&quot;NEFT&quot;) }
+
+@JvmInline value class AccountId(val raw: String)              // a distinct type that compiles down to a String
+@JvmInline value class PayeeId(val raw: String)
+
+sealed interface TransferResult {
+    data class Success(val reference: String) : TransferResult
+    data class Declined(val reason: String) : TransferResult
+    data object Pending : TransferResult                       // sent; the outcome is not known yet
+}
+
+fun message(r: TransferResult): String = when (r) {            // no else: add a case and this stops compiling
+    is TransferResult.Success -&gt; &quot;Sent. Ref ${r.reference}&quot;    // smart cast to Success
+    is TransferResult.Declined -&gt; &quot;Declined: ${r.reason}&quot;
+    TransferResult.Pending -&gt; &quot;We are confirming this payment&quot;
+}
+
+fun send(from: AccountId, to: PayeeId, channel: Channel): TransferResult =
+    if (channel == Channel.NEFT) TransferResult.Pending else TransferResult.Success(&quot;KX-1&quot;)
+
+fun main() {
+    val from = AccountId(&quot;SB-1001&quot;)
+    val to = PayeeId(&quot;P-77&quot;)
+    println(message(send(from, to, Channel.UPI)))              // Sent. Ref KX-1
+    // send(to, from, Channel.UPI)                             // does not compile: the two ids cannot be swapped
+    println(Channel.entries.joinToString { it.label })         // UPI, IMPS, NEFT
+}
+</code></pre>
+<table>
+<thead><tr><th>Use</th><th>When</th></tr></thead>
+<tbody>
+<tr><td><code>enum class</code></td><td>A fixed set of cases that all carry the same data, or none</td></tr>
+<tr><td><code>sealed interface</code></td><td>A fixed set of cases where each carries different data</td></tr>
+<tr><td><code>data class</code></td><td>A value made of several fields, compared by content</td></tr>
+<tr><td><code>value class</code></td><td>One field that must not be confused with others of the same type</td></tr>
+</tbody></table>
+<h2>End-to-end flow: adding a new outcome</h2>
+<p>Product decides that large transfers need a biometric step. You add one line: <code>data class NeedsStepUp(val challenge: String) : TransferResult</code>.</p>
+<ol>
+<li>The build fails at every <code>when</code> over <code>TransferResult</code> that has no <code>else</code>: the message function, the screen's reducer, the analytics mapper.</li>
+<li>At each one you decide what the new case means there.</li>
+<li>When the build is green, every place that inspects a transfer result handles the new one.</li>
+</ol>
+<p>Had the result been a <code>String</code> status, the same change would have compiled immediately and failed in production, in whichever branch was forgotten.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Mutable data in a hash-based collection.</strong> A data class with a <code>var</code> property changes its hash code when the property changes. Put one in a set, mutate it, and the set can no longer find it.</li>
+<li><strong>Arrays in data classes.</strong> Arrays compare by reference, so two equal-looking instances are not equal. Use a <code>List</code>.</li>
+<li><strong>An <code>else</code> branch over a sealed type.</strong> It switches the exhaustiveness check off.</li>
+<li><strong>Persisting <code>ordinal</code>.</strong> Reordering the enum corrupts stored data. Store the name or an explicit code.</li>
+<li><strong>Unknown values from a newer server.</strong> <code>enumValueOf</code> throws for a name it does not know. Map anything unrecognised to an explicit <code>Unknown</code> case.</li>
+<li><strong>Value classes that box.</strong> Used as a nullable type, a generic argument or through an interface, a value class is wrapped in an object after all.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>A sealed type is closed, which is its strength inside one app and its weakness across a network: an app released last year cannot know a case added this year. Keep sealed types on your side of the boundary and translate at the edge.</p>
+<p>Do not make an entity a data class. An <code>Account</code> whose balance changes has an identity; two accounts with equal fields are still two accounts. In a published library, adding a property to a data class changes <code>copy</code> and the <code>componentN</code> functions and breaks compiled callers.</p>
+<h2>Production and security</h2>
+<p>The generated <code>toString</code> prints every property. A data class that holds a card number or a token will put it in a log line the first time someone writes <code>"$request"</code>. Override <code>toString</code> on sensitive types, or do not make them data classes.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Model a card as a sealed type: active, frozen with a reason, expired with a date. Write the function that returns its label.</li>
+<li><strong>Investigate.</strong> Put a data class with a <code>var</code> into a <code>HashSet</code>, change the property, and call <code>contains</code>.</li>
+<li><strong>Challenge.</strong> The server will add transfer statuses over time. Design the wire format and the mapping so a two-year-old app still shows something sensible.</li>
+</ul></article>
+<article id="ch-07" data-num="07" data-part="II · Modelling" data-layer="domain,data" data-title="Collections and sequences" hidden><div class="eyebrow">II · Modelling · Chapter 7</div><h1>Collections and sequences</h1><p class="lede">Read-only and mutable collections, the operators you will use daily, and when laziness pays.</p><h2>Why it exists</h2>
+<p>A loop with an accumulator says how to compute something and leaves the reader to work out what. Kotlin's standard library names the common shapes (filter, group, sum) and separates collections you can read from collections you can change.</p>
+<p>In Kosh almost every screen starts from a list of transactions and derives something from it.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>An operation takes a collection and returns a new one. A chain reads from top to bottom as a sentence: keep the debits, group them by payee, add each group up.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>The everyday operators</h3>
+<pre><code class="language-kotlin">data class Tx(val id: String, val payee: String, val amountMinor: Long, val day: String)
+
+val txs = listOf(
+    Tx(&quot;t1&quot;, &quot;Asha&quot;, -25_000, &quot;Mon&quot;), Tx(&quot;t2&quot;, &quot;Salary&quot;, 8_500_000, &quot;Mon&quot;),
+    Tx(&quot;t3&quot;, &quot;Asha&quot;, -5_000, &quot;Tue&quot;), Tx(&quot;t4&quot;, &quot;Ravi&quot;, -120_000, &quot;Tue&quot;),
+)
+
+fun main() {
+    val debits = txs.filter { it.amountMinor &lt; 0 }                     // a new list; txs is unchanged
+    val spent = debits.sumOf { -it.amountMinor }                       // 150000
+    val byPayee: Map&lt;String, Long&gt; = debits.groupBy { it.payee }
+        .mapValues { (_, list) -&gt; list.sumOf { -it.amountMinor } }     // {Asha=30000, Ravi=120000}
+    val biggest = debits.minByOrNull { it.amountMinor }?.payee         // Ravi; null for an empty list
+    val (small, large) = debits.partition { -it.amountMinor &lt; 100_000 }
+    val perDay = txs.groupingBy { it.day }.eachCount()                 // {Mon=2, Tue=2}
+    val byId = txs.associateBy { it.id }                               // id -&gt; Tx, for lookups
+    println(&quot;$spent $byPayee $biggest ${small.size}/${large.size} $perDay ${byId[&quot;t3&quot;]?.payee}&quot;)
+
+    val readOnly: List&lt;Tx&gt; = txs                  // this type has no add()
+    val mutable = txs.toMutableList()             // a separate, mutable copy
+    mutable += Tx(&quot;t5&quot;, &quot;Meera&quot;, -900, &quot;Wed&quot;)
+    println(&quot;${readOnly.size} ${mutable.size}&quot;)   // 4 5
+}
+</code></pre>
+<table>
+<thead><tr><th>To</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td>Transform</td><td><code>map</code>, <code>mapNotNull</code>, <code>flatMap</code></td></tr>
+<tr><td>Select</td><td><code>filter</code>, <code>firstOrNull</code>, <code>take</code>, <code>distinctBy</code></td></tr>
+<tr><td>Regroup</td><td><code>groupBy</code>, <code>associateBy</code>, <code>partition</code>, <code>chunked</code></td></tr>
+<tr><td>Reduce</td><td><code>sumOf</code>, <code>count</code>, <code>fold</code>, <code>maxByOrNull</code></td></tr>
+<tr><td>Order</td><td><code>sortedBy</code>, <code>sortedByDescending</code>, <code>reversed</code></td></tr>
+</tbody></table>
+<p><code>List</code>, <code>Set</code> and <code>Map</code> have no methods that change them. <code>MutableList</code>, <code>MutableSet</code> and <code>MutableMap</code> do.</p>
+<h3>Sequences</h3>
+<pre><code class="language-kotlin">fun main() {
+    val amounts = (1..1_000_000).map { it * 10L }
+
+    // Eager: builds a million-element list, then a second one, then keeps three
+    val eager = amounts.map { it + 1 }.filter { it % 7 == 0L }.take(3)
+
+    // Lazy: each element goes through the whole chain, and the chain stops after three results
+    var touched = 0
+    val lazy = amounts.asSequence().onEach { touched++ }
+        .map { it + 1 }.filter { it % 7 == 0L }.take(3).toList()
+
+    println(&quot;$eager $lazy touched=$touched&quot;)      // [21, 91, 161] twice; touched=16
+}
+</code></pre>
+<p>The eager chain processed two million elements to produce three. The sequence touched sixteen.</p>
+<h2>End-to-end flow: spend by payee</h2>
+<p>Trace <code>byPayee</code> in the first sample with its four transactions:</p>
+<ol>
+<li><code>filter</code> returns a new list of the three debits: t1, t3, t4.</li>
+<li><code>groupBy</code> returns a map: Asha → [t1, t3], Ravi → [t4].</li>
+<li><code>mapValues</code> returns another map with each list replaced by its sum: Asha → 30000, Ravi → 120000.</li>
+</ol>
+<p>Three steps, three new collections, and the original list untouched. That is the cost model: clarity paid for with allocation.</p>
+<h2>Failure modes</h2>
+<p>Read-only does not mean immutable:</p>
+<pre><code class="language-kotlin">fun main() {
+    val backing = mutableListOf(&quot;t1&quot;, &quot;t2&quot;)
+    val view: List&lt;String&gt; = backing           // a read-only view of the same list
+    backing += &quot;t3&quot;
+    println(view)                              // [t1, t2, t3]: read-only does not mean immutable
+    val snapshot = backing.toList()            // a copy that later changes cannot reach
+    backing.clear()
+    println(&quot;$view $snapshot&quot;)                 // [] [t1, t2, t3]
+}
+</code></pre>
+<ul>
+<li><strong>Throwing accessors.</strong> <code>first()</code> throws on an empty list and <code>list[5]</code> throws when out of range. <code>map[key]</code> returns null; <code>map.getValue(key)</code> throws. Prefer the <code>OrNull</code> forms.</li>
+<li><strong>Long chains on long lists in UI code.</strong> Every step allocates. Run them once in the state holder, never in the body of a composable.</li>
+<li><strong>Changing a list while iterating over it.</strong> <code>ConcurrentModificationException</code>.</li>
+<li><strong><code>associateBy</code> with duplicate keys.</strong> The last one wins, silently.</li>
+<li><strong><code>sumOf</code> on <code>Int</code>.</strong> The sum is an <code>Int</code> and wraps on overflow.</li>
+<li><strong>Reusing a sequence.</strong> Each terminal operation runs the whole chain again.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>A plain <code>for</code> loop is still right in a hot path. Use a sequence when the collection is large and the chain has several steps or stops early; for a list of twenty it is slower than the eager version. When you need a collection that truly cannot change, use <code>kotlinx.collections.immutable</code>.</p>
+<p>If the data is in a database, let the database filter and aggregate. Loading ten thousand rows to sum them in memory is the wrong layer doing the work.</p>
+<h2>Production and security</h2>
+<p>Expose <code>List</code> and keep the <code>MutableList</code> private. Copy at boundaries with <code>toList()</code>. A <code>StateFlow&lt;List&lt;T&gt;&gt;</code> must be given a new list, because it compares the new value with the old and a list mutated in place equals itself: the screen will not update.</p>
+<p>Cap the size of any list that comes from outside before you process it.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> From the sample transactions, produce the three largest debits per day as a <code>Map&lt;String, List&lt;Tx&gt;&gt;</code>.</li>
+<li><strong>Investigate.</strong> Add <code>onEach { touched++ }</code> to the eager chain and compare the counts.</li>
+<li><strong>Challenge.</strong> The transaction list will hold two years of history. Decide which derived values are computed in SQL, which in memory, and where each runs.</li>
+</ul></article>
+<article id="ch-08" data-num="08" data-part="II · Modelling" data-layer="ui,domain" data-title="Extensions, scope functions and receivers" hidden><div class="eyebrow">II · Modelling · Chapter 8</div><h1>Extensions, scope functions and receivers</h1><p class="lede">Adding functions to types you do not own, the five scope functions, and how builders work.</p><h2>Why it exists</h2>
+<p>You cannot add a method to <code>String</code> or to Android's <code>Context</code>. Java's answer is a utility class and a call that reads inside out: <code>MoneyUtils.format(amount)</code>. Kotlin lets you write the function so the call reads <code>amount.format()</code>, and extends the same idea to lambdas, which is how the Gradle Kotlin DSL and Compose's scopes are built.</p>
+<p>In Kosh, extensions keep formatting in the UI layer and mapping in the data layer, away from the domain types they operate on.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>An extension is a static function whose first argument is written before the dot. It cannot see private members, and it does not change the class.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Extension functions and properties</h3>
+<pre><code class="language-kotlin">import kotlin.math.abs
+
+fun Long.asRupees(): String {                          // inside, `this` is the Long it was called on
+    val paise = (abs(this) % 100).toString().padStart(2, '0')
+    return (if (this &lt; 0) &quot;−&quot; else &quot;&quot;) + &quot;₹${abs(this) / 100}.$paise&quot;
+}
+
+val String.isUpiId: Boolean                            // an extension property: computed, never stored
+    get() = Regex(&quot;^[a-z0-9._-]{2,}@[a-z]{2,}$&quot;).matches(this)
+
+fun String?.orDash(): String = this ?: &quot;—&quot;             // an extension on a nullable type
+
+fun main() {
+    println(1_248_050L.asRupees())                     // ₹12480.50
+    println((-250L).asRupees())                        // −₹2.50
+    println(&quot;asha@okbank&quot;.isUpiId)                     // true
+    val note: String? = null
+    println(note.orDash())                             // —  (no safe call needed)
+}
+</code></pre>
+<h3>Scope functions</h3>
+<pre><code class="language-kotlin">class Request { var url = &quot;&quot;; var timeoutMs = 0; val headers = mutableMapOf&lt;String, String&gt;() }
+
+fun main() {
+    val token: String? = &quot;abc&quot;
+
+    val request = Request().apply {                   // apply: configure the object, get the object back
+        url = &quot;https://api.kosh.example/v1/transfers&quot;
+        timeoutMs = 20_000
+    }
+    token?.let { request.headers[&quot;Authorization&quot;] = &quot;Bearer $it&quot; }    // let: use a non-null value once
+    val sent = request.also { println(&quot;Sending to ${it.url}&quot;) }       // also: a side effect; same object back
+    val summary = with(sent) { &quot;$timeoutMs ms, ${headers.size} header(s)&quot; }   // with: several reads of one object
+    val host = sent.url.run { removePrefix(&quot;https://&quot;).substringBefore('/') } // run: compute something from it
+    println(&quot;$summary, $host&quot;)
+}
+</code></pre>
+<table>
+<thead><tr><th>Function</th><th>The object is</th><th>Returns</th><th>Typical use</th></tr></thead>
+<tbody>
+<tr><td><code>let</code></td><td><code>it</code></td><td>the lambda's result</td><td>act on a non-null value</td></tr>
+<tr><td><code>run</code></td><td><code>this</code></td><td>the lambda's result</td><td>compute something from an object</td></tr>
+<tr><td><code>with</code></td><td><code>this</code></td><td>the lambda's result</td><td>several calls on one object</td></tr>
+<tr><td><code>apply</code></td><td><code>this</code></td><td>the object</td><td>configure a new object</td></tr>
+<tr><td><code>also</code></td><td><code>it</code></td><td>the object</td><td>a side effect such as logging</td></tr>
+</tbody></table>
+<p>You can write good Kotlin with <code>let</code> and <code>apply</code> alone.</p>
+<h3>Lambdas with receivers</h3>
+<pre><code class="language-kotlin">class ReceiptBuilder {
+    private val lines = mutableListOf&lt;String&gt;()
+    fun line(label: String, value: String) { lines += label.padEnd(10) + value }
+    fun rule() { lines += &quot;-&quot;.repeat(22) }
+    fun build(): String = lines.joinToString(&quot;\n&quot;)
+}
+
+fun receipt(block: ReceiptBuilder.() -&gt; Unit): String =       // a lambda with a receiver
+    ReceiptBuilder().apply(block).build()
+
+fun main() {
+    val text = receipt {              // inside the braces, `this` is a ReceiptBuilder
+        line(&quot;To&quot;, &quot;Asha&quot;)
+        line(&quot;Amount&quot;, &quot;₹250.00&quot;)
+        rule()
+        line(&quot;Ref&quot;, &quot;KX-88213&quot;)
+    }
+    println(text)
+}
+</code></pre>
+<p><code>ReceiptBuilder.() -&gt; Unit</code> is a lambda in which <code>this</code> is a <code>ReceiptBuilder</code>. Compose's <code>Column { }</code> works the same way: inside the braces you are in a <code>ColumnScope</code>.</p>
+<h2>End-to-end flow: what an extension call compiles to</h2>
+<p>For <code>1_248_050L.asRupees()</code>:</p>
+<ol>
+<li>The compiler looks for a member of <code>Long</code> named <code>asRupees</code>. There is none.</li>
+<li>It looks for an extension in scope: declared in this file or imported.</li>
+<li>It emits a static call, in effect <code>MoneyFormatKt.asRupees(1248050L)</code>.</li>
+<li>Inside the function, <code>this</code> is that parameter.</li>
+</ol>
+<p>The function was chosen at compile time from the declared type of the expression. Nothing is looked up at run time.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>A member always wins.</strong> If a library later adds a member with the same name and parameters, your extension stops being called and nothing warns you.</li>
+<li><strong>Static dispatch.</strong> With extensions on both a base type and a subtype, the one called depends on the variable's declared type, not the object's actual class.</li>
+<li><strong>Nested scope functions.</strong> Inside an <code>apply</code> inside an <code>apply</code>, <code>name = name</code> assigns a property to itself.</li>
+<li><strong><code>?.let { } ?: run { }</code> used as if/else.</strong> If the <code>let</code> block itself returns null, the <code>run</code> block executes too.</li>
+<li><strong>Extensions on very general types.</strong> A public extension on <code>String</code> or <code>Any</code> appears in autocomplete everywhere and collides with someone else's.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Write a member when the function needs private state or is part of what the type means, and you own the type. Write an extension when it is one layer's view of the type: display formatting belongs to the UI, so the domain class stays free of it. Builders are pleasant to read and tedious to write and debug; build one when the same structure appears dozens of times, not twice.</p>
+<h2>Production and security</h2>
+<p>An extension cannot reach anything the caller could not already reach, so it exposes nothing new. Keep extensions <code>private</code> or <code>internal</code> unless other modules need them. In review, treat scope functions nested more than one level deep as a readability defect; a linter such as detekt can enforce it.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Write <code>fun List&lt;Tx&gt;.totalDebits(): Long</code> and an extension property <code>Tx.isDebit</code>.</li>
+<li><strong>Investigate.</strong> Declare <code>fun Any.label() = "any"</code> and <code>fun String.label() = "string"</code>. Call <code>label()</code> on a string held in a variable of type <code>Any</code>.</li>
+<li><strong>Challenge.</strong> Design a small builder for a payment notification: title, body, an optional action. Decide what must be impossible to express.</li>
+</ul></article>
+<article id="ch-09" data-num="09" data-part="II · Modelling" data-layer="data,services" data-title="Generics and delegation" hidden><div class="eyebrow">II · Modelling · Chapter 9</div><h1>Generics and delegation</h1><p class="lede">Writing one type for many, variance without wildcards, and handing work to another object with by.</p><h2>Why it exists</h2>
+<p>A result of a network call has the same shape whether it carries a balance or a list of payees. Java's generics express that, with wildcards (<code>? extends T</code>) at every use and no type information at run time. Separately, some patterns are pure repetition: compute once on first use, notify on change, forward every call to a wrapped object.</p>
+<p>In Kosh, generics describe API results and repositories, and <code>by</code> appears wherever Android hands you a delegate: <code>by viewModels()</code>, <code>by preferencesDataStore(…)</code>, <code>by remember { mutableStateOf(…) }</code>.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p><code>out T</code> means the type only hands <code>T</code> back, so a result of <code>Int</code> can stand in for a result of <code>Any</code>. <code>by</code> means another object does this for me.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Generics, variance and reified types</h3>
+<pre><code class="language-kotlin">sealed interface ApiResult&lt;out T&gt; {                                  // out: this type only hands T back
+    data class Ok&lt;T&gt;(val value: T) : ApiResult&lt;T&gt;
+    data class Failed(val reason: String) : ApiResult&lt;Nothing&gt;       // Nothing fits every T
+}
+
+fun &lt;T, R&gt; ApiResult&lt;T&gt;.map(transform: (T) -&gt; R): ApiResult&lt;R&gt; = when (this) {
+    is ApiResult.Ok -&gt; ApiResult.Ok(transform(value))
+    is ApiResult.Failed -&gt; this
+}
+
+fun &lt;T : Comparable&lt;T&gt;&gt; largest(items: List&lt;T&gt;): T? = items.maxOrNull()      // T must be comparable
+
+inline fun &lt;reified T&gt; List&lt;Any&gt;.firstOf(): T? = firstOrNull { it is T } as T?   // reified: T exists at run time
+
+fun main() {
+    val r: ApiResult&lt;Int&gt; = ApiResult.Ok(25_000)
+    val wider: ApiResult&lt;Any&gt; = r                          // allowed because of `out`
+    println(r.map { it / 100 })                            // Ok(value=250)
+    println(wider is ApiResult.Ok)                         // true
+    println(largest(listOf(&quot;Ravi&quot;, &quot;Asha&quot;)))               // Ravi
+    println(listOf&lt;Any&gt;(1, &quot;KX-1&quot;, 2.5).firstOf&lt;String&gt;()) // KX-1
+}
+</code></pre>
+<p>Variance is declared once, on the type. <code>out</code> marks a producer; <code>in</code> marks a consumer, such as <code>Comparator&lt;in T&gt;</code>. <code>Nothing</code> is a subtype of everything, which is why one <code>Failed</code> fits every <code>ApiResult&lt;T&gt;</code>.</p>
+<h3>Delegation</h3>
+<pre><code class="language-kotlin">import kotlin.properties.Delegates
+
+interface Logger { fun log(message: String) }
+class ConsoleLogger : Logger { override fun log(message: String) = println(&quot;[kosh] $message&quot;) }
+
+class TransferService(logger: Logger) : Logger by logger {          // every Logger call is forwarded to `logger`
+    val limits: Map&lt;String, Long&gt; by lazy {                         // computed once, on first read; thread-safe
+        log(&quot;loading limits&quot;)
+        mapOf(&quot;UPI&quot; to 10_000_000L, &quot;IMPS&quot; to 50_000_000L)
+    }
+
+    var status: String by Delegates.observable(&quot;idle&quot;) { _, old, new -&gt; log(&quot;$old -&gt; $new&quot;) }
+}
+
+class Config(values: Map&lt;String, Any?&gt;) {
+    val apiBase: String by values                                   // reads values[&quot;apiBase&quot;]
+    val timeoutMs: Int by values
+}
+
+fun main() {
+    val service = TransferService(ConsoleLogger())
+    service.status = &quot;sending&quot;                                      // [kosh] idle -&gt; sending
+    println(service.limits[&quot;UPI&quot;])                                  // [kosh] loading limits, then 10000000
+    println(service.limits[&quot;IMPS&quot;])                                 // 50000000; not loaded again
+    println(Config(mapOf(&quot;apiBase&quot; to &quot;https://api.kosh.example&quot;, &quot;timeoutMs&quot; to 20_000)).timeoutMs)
+}
+</code></pre>
+<h2>End-to-end flow: the first read of a lazy property</h2>
+<ol>
+<li>The compiler turns <code>val limits by lazy { … }</code> into a hidden <code>Lazy</code> object and a getter that asks it for its value.</li>
+<li>On the first read the <code>Lazy</code> takes a lock, runs the block, logs "loading limits" and stores the map.</li>
+<li>On the second read it returns the stored map. The block does not run again.</li>
+<li>Had the block thrown, nothing would have been stored and the next read would try again.</li>
+</ol>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Type erasure.</strong> <code>x is List&lt;String&gt;</code> does not compile, and <code>x as List&lt;String&gt;</code> succeeds for any list, then fails later where an element is used.</li>
+<li><strong>Variance errors.</strong> "Type parameter T is declared as 'out' but occurs in 'in' position" means a producer is trying to accept a <code>T</code>.</li>
+<li><strong><code>lazy</code> that captures a view.</strong> In a fragment, a lazy property computed from the view keeps pointing at the old view after the view is recreated.</li>
+<li><strong>Class delegation is not inheritance.</strong> Methods of the wrapped object that call each other do not go through your overrides.</li>
+<li><strong>Map-backed properties.</strong> A missing key throws when the property is read, and a wrong type throws a <code>ClassCastException</code>.</li>
+<li><strong><code>reified</code> from Java.</strong> Inline functions with reified type parameters cannot be called from Java.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Make something generic when two concrete versions already exist and are the same. A <code>BaseRepository&lt;T, ID&gt;</code> written before the second repository usually fits neither. Prefer <code>by</code> over inheritance for wrappers and decorators. Custom property delegates can hide disk or network access behind what looks like a field read; keep delegates for cheap operations.</p>
+<h2>Production and security</h2>
+<p>An unchecked cast on data from outside (a deserialised object, a <code>Bundle</code> extra) is a crash another app can trigger. Check the type with <code>as?</code> and handle the null.</p>
+<p>Serialisers that read generic types by reflection need the generic signatures to survive R8. Generated serialisers avoid the problem.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Add <code>fun &lt;T&gt; ApiResult&lt;T&gt;.getOrElse(fallback: T): T</code> and use it.</li>
+<li><strong>Investigate.</strong> Remove <code>out</code> from <code>ApiResult</code> and read the two errors that appear.</li>
+<li><strong>Challenge.</strong> Design a cache <code>Cache&lt;K, V&gt;</code> with expiry. Decide which type parameters could be <code>in</code> or <code>out</code>, and why neither is possible for one of them.</li>
+</ul></article>
+<article id="ch-10" data-num="10" data-part="II · Modelling" data-layer="domain,data,services" data-title="Errors and results" hidden><div class="eyebrow">II · Modelling · Chapter 10</div><h1>Errors and results</h1><p class="lede">Exceptions without checked exceptions, and returning outcomes the caller must handle.</p><h2>Why it exists</h2>
+<p>Java's checked exceptions were meant to make failure visible in signatures. In practice they produced empty <code>catch</code> blocks and <code>throws Exception</code>. Kotlin has no checked exceptions at all, which removes the noise and raises a question: how does a caller know what can go wrong?</p>
+<p>The answer used throughout Kosh is a convention. A declined transfer is not an exception; it is one of the things a transfer can do.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>If the caller is expected to handle it, return it. If nobody can sensibly handle it, throw it.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Throwing and catching</h3>
+<pre><code class="language-kotlin">import java.io.File
+
+class InsufficientFunds(val shortByMinor: Long) : Exception(&quot;Short by $shortByMinor&quot;)
+
+fun withdraw(balanceMinor: Long, amountMinor: Long): Long {
+    require(amountMinor &gt; 0) { &quot;Amount must be positive&quot; }        // IllegalArgumentException: the caller is wrong
+    check(balanceMinor &gt;= 0) { &quot;Balance is already negative&quot; }    // IllegalStateException: we are wrong
+    if (amountMinor &gt; balanceMinor) throw InsufficientFunds(amountMinor - balanceMinor)
+    return balanceMinor - amountMinor
+}
+
+fun parseAmount(text: String): Long? = try {                      // try is an expression
+    text.trim().toBigDecimal().movePointRight(2).longValueExact()
+} catch (e: NumberFormatException) {
+    null
+} catch (e: ArithmeticException) {
+    null
+}
+
+fun firstLine(path: String): String? =
+    File(path).bufferedReader().use { it.readLine() }             // use: closed on success and on failure
+
+fun main() {
+    println(parseAmount(&quot;250.50&quot;))                                // 25050
+    println(parseAmount(&quot;2.505&quot;))                                 // null: more than two decimals
+    val outcome = runCatching { withdraw(10_000, 25_000) }        // a Result&lt;Long&gt;
+    println(outcome.exceptionOrNull()?.message)                   // Short by 15000
+    println(outcome.getOrElse { 0 })                              // 0
+}
+</code></pre>
+<p><code>require</code> is for arguments, <code>check</code> is for state. <code>try</code> has a value, so there is no need for a variable assigned in two branches. <code>runCatching</code> wraps a block in a <code>Result</code>.</p>
+<h3>Outcomes as types</h3>
+<pre><code class="language-kotlin">sealed interface WithdrawResult {
+    data class Done(val newBalanceMinor: Long) : WithdrawResult
+    data class Short(val byMinor: Long) : WithdrawResult
+    data object InvalidAmount : WithdrawResult
+}
+
+fun withdraw(balanceMinor: Long, amountMinor: Long): WithdrawResult = when {
+    amountMinor &lt;= 0 -&gt; WithdrawResult.InvalidAmount
+    amountMinor &gt; balanceMinor -&gt; WithdrawResult.Short(amountMinor - balanceMinor)
+    else -&gt; WithdrawResult.Done(balanceMinor - amountMinor)
+}
+
+fun render(r: WithdrawResult): String = when (r) {       // every caller must handle every outcome
+    is WithdrawResult.Done -&gt; &quot;New balance ${r.newBalanceMinor}&quot;
+    is WithdrawResult.Short -&gt; &quot;Short by ${r.byMinor}&quot;
+    WithdrawResult.InvalidAmount -&gt; &quot;Enter an amount&quot;
+}
+
+fun main() = println(render(withdraw(10_000, 25_000)))   // Short by 15000
+</code></pre>
+<p>The second <code>withdraw</code> cannot surprise its caller: every outcome is in the return type.</p>
+<h2>End-to-end flow: "not enough balance", from the domain to the screen</h2>
+<ol>
+<li><code>withdraw</code> returns <code>Short(15000)</code>.</li>
+<li>The use case passes it on unchanged.</li>
+<li>The state holder maps it to screen state with a <code>when</code> that the compiler checks.</li>
+<li>The screen shows "Short by ₹150.00".</li>
+</ol>
+<p>There is no <code>try</code> anywhere on that path. Now pull the network cable: the HTTP client throws an <code>IOException</code>, the data layer catches it once, at the boundary, and converts it into a result such as <code>Unreachable</code>. Exceptions are translated at the edge and do not travel through the app. The <a href="../kotlin/#ch-16">networking chapter of the Android book</a> builds that boundary.</p>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Catching <code>Exception</code> in suspending code.</strong> It also catches <code>CancellationException</code>, so a cancelled coroutine carries on. Catch the specific type, or rethrow cancellation. <code>runCatching</code> has the same problem.</li>
+<li><strong>Catch-all blocks.</strong> A <code>NullPointerException</code> becomes "Something went wrong" and the bug is never seen.</li>
+<li><strong>Exceptions for expected cases.</strong> They are invisible in the signature, so the next caller forgets them.</li>
+<li><strong>Losing the cause.</strong> When wrapping, pass the original as <code>cause</code>.</li>
+<li><strong>An uncaught exception in <code>launch</code>.</strong> On Android it reaches the default handler and the app closes.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Sealed results cost a mapping at every layer. Pay that for outcomes a user will see: declined, insufficient, pending. Do not pay it for programmer errors; an illegal argument should throw and be fixed. <code>Result</code> and <code>runCatching</code> are convenient for wrapping one throwing call at a boundary, and they reduce every failure to a bare <code>Throwable</code>.</p>
+<h2>Production and security</h2>
+<p>Exception messages are written for developers. Shown to a user or copied into a log, they can carry SQL, file paths or a URL with a token in it. Map failures to user-facing text deliberately, and redact what you log.</p>
+<p>Fail closed. <code>runCatching { verify(signature) }.getOrDefault(true)</code> approves everything whenever verification itself breaks.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Rewrite <code>parseAmount</code> to return a sealed result that distinguishes "not a number" from "too many decimals".</li>
+<li><strong>Investigate.</strong> Wrap a <code>delay</code> in <code>runCatching</code> inside a coroutine, cancel it, and observe that the code after it still runs.</li>
+<li><strong>Challenge.</strong> List every way a transfer can end. Decide which are return values, which are exceptions, and what the user reads for each.</li>
+</ul></article>
+<article id="ch-11" data-num="11" data-part="III · Concurrency" data-layer="state,data,services" data-title="Coroutines" hidden><div class="eyebrow">III · Concurrency · Chapter 11</div><h1>Coroutines</h1><p class="lede">Suspending functions, scopes, dispatchers and cancellation.</p><h2>Why it exists</h2>
+<p>An Android app has one main thread, and it must finish its work for each frame in a few milliseconds. Network and disk calls take hundreds. The older answers were a thread plus a callback, which nests badly and has no way to stop work for a screen that has gone, and RxJava, which is powerful and a language of its own.</p>
+<p>Coroutines let you write the slow call as an ordinary line of code that waits without occupying a thread. In Kosh every repository function is one.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>A suspending function can pause without holding a thread and continue later. A scope owns the coroutines started in it: cancel the scope and all of them stop.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>suspend, async and structured concurrency</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.*
+
+suspend fun fetchBalance(): Long { delay(300); return 1_248_050 }         // waits without holding a thread
+suspend fun fetchRecent(): List&lt;String&gt; { delay(200); return listOf(&quot;t1&quot;, &quot;t2&quot;) }
+
+suspend fun loadHome(): String = coroutineScope {                         // returns when all its children are done
+    val balance = async { fetchBalance() }                                // starts now
+    val recent = async { fetchRecent() }                                  // runs at the same time
+    &quot;${balance.await()} ${recent.await()}&quot;                                // if either fails, the other is cancelled
+}
+
+fun main() = runBlocking {                                                // lets a plain main() call suspend code
+    val start = System.currentTimeMillis()
+    println(loadHome())
+    println(&quot;about ${(System.currentTimeMillis() - start) / 100 * 100} ms&quot;)   // about 300, not 500
+}
+</code></pre>
+<p>A <code>suspend</code> function may only be called from another one, or from a coroutine. <code>launch</code> starts a coroutine that returns nothing; <code>async</code> starts one that returns a value through <code>await</code>. <code>runBlocking</code> exists for <code>main</code> functions and tests. Do not call it from app code.</p>
+<h3>Cancellation is cooperative</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.*
+
+fun main() = runBlocking {
+    val job = launch {
+        try {
+            repeat(10) { i -&gt; println(&quot;poll $i&quot;); delay(100) }           // delay is a cancellation point
+        } finally {
+            println(&quot;cleaning up&quot;)                                        // runs on cancellation as well
+        }
+    }
+    delay(250)
+    job.cancelAndJoin()                                                   // ask it to stop, then wait until it has
+    println(&quot;cancelled: ${job.isCancelled}&quot;)
+
+    val rates = withTimeoutOrNull(200) { delay(1_000); &quot;rates&quot; }          // null when the time budget runs out
+    println(rates)
+}
+</code></pre>
+<h3>Dispatchers decide the thread</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.*
+import java.io.File
+
+class StatementStore(private val io: CoroutineDispatcher = Dispatchers.IO) {
+    /** Main-safe: call it from any thread. The blocking read runs on the IO pool. */
+    suspend fun read(path: String): String = withContext(io) { File(path).readText() }
+}
+
+suspend fun checksum(bytes: ByteArray): Int = withContext(Dispatchers.Default) {   // CPU work: the Default pool
+    var sum = 0
+    for (b in bytes) {
+        ensureActive()                       // a loop with no suspension must check for cancellation itself
+        sum = sum * 31 + b
+    }
+    sum
+}
+
+fun main() = runBlocking { println(checksum(&quot;KX-88213&quot;.toByteArray())) }
+</code></pre>
+<p><code>Dispatchers.Main</code> is the UI thread, <code>IO</code> is a pool for blocking calls and <code>Default</code> is a pool sized to the CPU. A function is <em>main-safe</em> when it moves itself to the right dispatcher, so callers never have to think about threads. Passing the dispatcher in, as <code>StatementStore</code> does, lets a test replace it.</p>
+<h3>When one child may fail</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.*
+import java.io.IOException
+
+suspend fun balance(): String { delay(50); return &quot;₹12,480.50&quot; }
+suspend fun offers(): String { delay(50); throw IOException(&quot;offers are down&quot;) }
+
+suspend fun dashboard(): String = supervisorScope {       // a failing child does not cancel its siblings
+    val essential = async { balance() }
+    val optional = async { offers() }
+    val offersText = try { optional.await() } catch (e: IOException) { &quot;no offers today&quot; }
+    &quot;${essential.await()} · $offersText&quot;
+}
+
+fun main() = runBlocking { println(dashboard()) }         // ₹12,480.50 · no offers today
+</code></pre>
+<h3>On Android</h3>
+<p>This sample needs the Android SDK and was not compiled with the others:</p>
+<pre><code class="language-kotlin">class BalanceViewModel(private val accounts: AccountsRepository) : ViewModel() {
+    private val _state = MutableStateFlow&lt;BalanceUiState&gt;(BalanceUiState.Loading)
+    val state: StateFlow&lt;BalanceUiState&gt; = _state.asStateFlow()
+
+    fun refresh() {
+        viewModelScope.launch {                               // cancelled when the ViewModel is cleared
+            _state.value = try {
+                BalanceUiState.Ready(accounts.balance())      // suspends; the main thread stays free
+            } catch (e: IOException) {
+                BalanceUiState.Error
+            }
+        }
+    }
+}
+</code></pre>
+<h2>End-to-end flow: a tap on Refresh</h2>
+<ol>
+<li>The click calls <code>refresh()</code> on the main thread.</li>
+<li><code>viewModelScope.launch</code> starts a coroutine on the main dispatcher.</li>
+<li><code>accounts.balance()</code> suspends. Inside the repository, <code>withContext(Dispatchers.IO)</code> runs the network call on an IO thread. The main thread is free to draw.</li>
+<li>The response arrives. The coroutine continues on the main thread and assigns the new state.</li>
+<li>If the user had left and the view model was cleared during step 3, the scope would be cancelled, the suspended call would throw <code>CancellationException</code>, and nothing would be assigned.</li>
+</ol>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Blocking the main thread inside a coroutine.</strong> The <code>suspend</code> keyword does not make code non-blocking. <code>Thread.sleep</code> or a blocking read on the main dispatcher freezes the app.</li>
+<li><strong>Coroutines nobody owns.</strong> <code>GlobalScope.launch</code>, or a <code>CoroutineScope</code> that is never cancelled, keeps running after the screen is gone.</li>
+<li><strong>Swallowing <code>CancellationException</code>.</strong> A broad <code>catch</code> turns a cancelled coroutine into a running one.</li>
+<li><strong>A loop that never suspends.</strong> It cannot be cancelled unless it calls <code>ensureActive()</code> or <code>yield()</code>.</li>
+<li><strong><code>runBlocking</code> on the main thread.</strong> A freeze, and sometimes a deadlock.</li>
+<li><strong>Shared mutable state.</strong> Two coroutines on <code>Dispatchers.Default</code> run on different threads. Use a <code>Mutex</code>, confine the state to one dispatcher, or use <code>MutableStateFlow.update</code>.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Coroutines are cheaper than threads and easier to read than callbacks. The rules for cancellation and exceptions are subtle, and getting them wrong produces bugs that appear only under load or on slow networks. Suspending functions are awkward to call from Java. And they are not a way to make CPU work faster: <code>Dispatchers.Default</code> has as many threads as the device has cores.</p>
+<p>Work that must finish after the user leaves the app does not belong in a coroutine scope. Hand it to WorkManager.</p>
+<h2>Production and security</h2>
+<p>Inject dispatchers so tests can run on virtual time. Put a timeout on every network call. Cancellation can stop a multi-step operation halfway, so make the steps idempotent, and wrap clean-up that must complete in <code>withContext(NonCancellable)</code>. The <a href="../kotlin/#ch-14">coroutines chapter of the Android book</a> applies all of this to repositories and view models.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Change <code>loadHome</code> so both fetches run one after the other, and measure the difference.</li>
+<li><strong>Investigate.</strong> Replace <code>delay(100)</code> in the polling loop with <code>Thread.sleep(100)</code> and cancel it. Explain what you see.</li>
+<li><strong>Challenge.</strong> A dashboard calls four services; two are essential, two are optional and slow. Sketch the scopes, the timeouts and what the user sees when each one fails.</li>
+</ul></article>
+<article id="ch-12" data-num="12" data-part="III · Concurrency" data-layer="ui,state,data" data-title="Flow" hidden><div class="eyebrow">III · Concurrency · Chapter 12</div><h1>Flow</h1><p class="lede">Values over time: cold flows, StateFlow, and collecting safely.</p><h2>Why it exists</h2>
+<p>A suspending function returns once. A screen needs more than that: the balance changes, search results arrive as the user types, the connection comes and goes. Before Flow the tools were listeners, <code>LiveData</code> and RxJava.</p>
+<p>In Kosh, the database emits a new list whenever a row changes, the state holder turns it into screen state, and the UI collects it.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>A flow is a suspending function that can return many times. A cold flow does nothing until someone collects it. A <code>StateFlow</code> is hot: it always holds the latest value.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>A cold flow and its operators</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+
+fun prices(): Flow&lt;Int&gt; = flow {                 // cold: the block runs once per collector, when collected
+    var price = 100
+    while (true) { emit(price); delay(100); price += 5 }
+}
+
+fun main() = runBlocking {
+    prices()
+        .map { it * 100 }                        // operators describe a new flow; nothing has run yet
+        .filter { it % 1_000 == 0 }
+        .take(3)                                 // cancels the loop upstream after three values
+        .collect { println(it) }                 // collecting starts everything: 10000, 11000, 12000
+}
+</code></pre>
+<table>
+<thead><tr><th>Type</th><th>Starts</th><th>Holds a value</th><th>Use for</th></tr></thead>
+<tbody>
+<tr><td><code>Flow</code></td><td>when collected, once per collector</td><td>no</td><td>a stream from a source: a query, a socket</td></tr>
+<tr><td><code>StateFlow</code></td><td>independently of collectors</td><td>always, the latest</td><td>screen state</td></tr>
+<tr><td><code>SharedFlow</code></td><td>independently of collectors</td><td>only what you configure</td><td>broadcasts to several collectors</td></tr>
+</tbody></table>
+<h3>State from a stream</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import java.io.IOException
+
+data class UiState(val query: String = &quot;&quot;, val results: List&lt;String&gt; = emptyList())
+
+class SearchModel(scope: CoroutineScope, private val search: suspend (String) -&gt; List&lt;String&gt;) {
+    private val query = MutableStateFlow(&quot;&quot;)                    // hot: it always holds a current value
+    fun onQueryChange(text: String) { query.value = text }
+
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val state: StateFlow&lt;UiState&gt; = query
+        .debounce(300)                                          // wait until typing pauses
+        .distinctUntilChanged()
+        .mapLatest { q -&gt;                                       // a newer query cancels the older search
+            val found = if (q.length &lt; 2) emptyList()
+                        else try { search(q) } catch (e: IOException) { emptyList() }   // one failure must not end the flow
+            UiState(q, found)
+        }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), UiState())
+}
+
+fun main() = runBlocking {
+    val payees = listOf(&quot;Asha&quot;, &quot;Ashok&quot;, &quot;Ravi&quot;)
+    val modelScope = CoroutineScope(Dispatchers.Default)
+    val model = SearchModel(modelScope) { q -&gt; delay(50); payees.filter { it.startsWith(q, ignoreCase = true) } }
+
+    val screen = launch { model.state.collect { println(it) } }
+    model.onQueryChange(&quot;a&quot;); model.onQueryChange(&quot;as&quot;); model.onQueryChange(&quot;ash&quot;)
+    delay(700)                                                  // one search runs, for &quot;ash&quot;
+    screen.cancel(); modelScope.cancel()
+}
+</code></pre>
+<p><code>stateIn</code> turns a cold chain into a <code>StateFlow</code>. <code>WhileSubscribed(5_000)</code> keeps the chain alive for five seconds after the last collector leaves, long enough to survive a rotation and short enough to stop work for a screen that has really gone.</p>
+<h3>Wrapping a listener API</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+
+interface PriceListener { fun onPrice(value: Int) }
+
+class PriceFeed {                                      // stands in for any listener-based SDK
+    private var listener: PriceListener? = null
+    fun register(l: PriceListener) { listener = l }
+    fun unregister() { listener = null }
+    fun push(value: Int) { listener?.onPrice(value) }
+}
+
+fun PriceFeed.asFlow(): Flow&lt;Int&gt; = callbackFlow {
+    register(object : PriceListener {
+        override fun onPrice(value: Int) { trySend(value) }    // never blocks the SDK's thread
+    })
+    awaitClose { unregister() }                                // runs when the collector goes away
+}.conflate()                                                   // a slow collector sees only the newest value
+</code></pre>
+<h3>Collecting on Android</h3>
+<p>These samples need the Android SDK and were not compiled with the others:</p>
+<pre><code class="language-kotlin">// Compose: collection stops while the screen is not visible
+@Composable
+fun BalanceScreen(viewModel: BalanceViewModel) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    BalanceContent(state)
+}
+
+// Views: the same guarantee, written out
+class BalanceFragment : Fragment() {
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collect(::render)
+            }
+        }
+    }
+}
+</code></pre>
+<h2>End-to-end flow: typing "ash" into payee search</h2>
+<p>Run the <code>SearchModel</code> sample and it prints two lines: the initial empty state and the result for "ash". Here is why there are not four:</p>
+<ol>
+<li>Three calls set <code>query.value</code> to "a", "as" and "ash" within a millisecond.</li>
+<li><code>debounce(300)</code> holds each value until 300 ms pass with no newer one. Only "ash" gets through.</li>
+<li><code>mapLatest</code> starts the search. Had another query arrived, this search would have been cancelled.</li>
+<li>The result becomes a <code>UiState</code>. <code>stateIn</code> stores it and hands it to the collector.</li>
+</ol>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Collecting without the lifecycle.</strong> A plain <code>lifecycleScope.launch { flow.collect { } }</code> keeps collecting while the screen is in the background.</li>
+<li><strong><code>catch</code> downstream of the work.</strong> A flow that throws is finished. A <code>catch</code> after <code>mapLatest</code> emits a fallback once and then the stream is over. Handle the failure inside the block, as the sample does.</li>
+<li><strong>Mutating instead of replacing.</strong> <code>StateFlow</code> ignores a value equal to the current one. Add to a list in place and nothing is emitted.</li>
+<li><strong>Events in a <code>SharedFlow</code> with no replay.</strong> An event emitted while nothing is collecting is lost. Model it as state the screen acknowledges.</li>
+<li><strong>A new chain on every call.</strong> <code>fun state() = repo.observe().stateIn(…)</code> builds another pipeline each time. Make it a property.</li>
+<li><strong>Emitting from another context.</strong> Calling <code>emit</code> inside <code>withContext</code> in a <code>flow { }</code> block throws. Use <code>flowOn</code>.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>If there is one answer, use a suspending function; a flow with a single emission is harder to call and to test. Flow has fewer operators than RxJava and that is mostly a benefit. Hot flows need care in tests, where a helper library such as Turbine earns its place. <code>LiveData</code> remains fine in an existing View-based app.</p>
+<h2>Production and security</h2>
+<p>Expose <code>StateFlow</code> and keep the <code>MutableStateFlow</code> private, so only the owner can write. Collect with the lifecycle. Remember that a hot flow holds its last value in memory for as long as its scope lives: a view model that kept card details in state still has them after the screen closes. Clear sensitive state on sign-out.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Add a second collector to <code>prices()</code> and confirm each one gets its own sequence starting at 100.</li>
+<li><strong>Investigate.</strong> Move the <code>try</code> out of <code>mapLatest</code> and add <code>.catch { emit(UiState()) }</code> after it. Make the first search throw, then search again.</li>
+<li><strong>Challenge.</strong> The home screen shows balance, recent transactions and connectivity. Design the flows, where they are combined, and what the sharing policy is.</li>
+</ul></article>
+<article id="ch-13" data-num="13" data-part="IV · On Android" data-layer="platform,data" data-title="Kotlin with Java and the Android SDK" hidden><div class="eyebrow">IV · On Android · Chapter 13</div><h1>Kotlin with Java and the Android SDK</h1><p class="lede">Calling Java from Kotlin, being called from Java, and what the SDK's types look like from here.</p><h2>Why it exists</h2>
+<p>The Android SDK is a Java API. So are most libraries, and so, perhaps, is the app you are joining. Kotlin was adopted on Android because it could be added one file at a time, with each language calling the other. That interoperability is very good and not quite free.</p>
+<p>In Kosh the boundary runs along the platform layer and through every Java library in the data layer.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>Calling Java from Kotlin costs almost nothing, except that Java types arrive with unknown nullability. Calling Kotlin from Java works, and reads well once you add a few <code>@Jvm</code> annotations.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>Kotlin calling Java</h3>
+<pre><code class="language-kotlin">import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
+fun main() {
+    val env: String? = System.getenv(&quot;KOSH_ENV&quot;)          // Java returns a platform type; you choose String?
+    println(env?.lowercase() ?: &quot;dev&quot;)
+
+    val pool = Executors.newSingleThreadExecutor()
+    pool.execute { println(&quot;running on a pool thread&quot;) }  // a lambda where Java expects a Runnable
+    pool.shutdown()
+    pool.awaitTermination(1, TimeUnit.SECONDS)
+
+    val worker = Thread { }
+    worker.name = &quot;kosh-io&quot;                               // setName(...) written as a property
+    worker.isDaemon = true                                // setDaemon(...) / isDaemon()
+    println(&quot;${worker.name} ${worker.isDaemon}&quot;)
+
+    val ids = java.util.ArrayList&lt;String&gt;()               // a Java list is a MutableList here
+    ids += &quot;t1&quot;
+    println(ids.first())
+}
+</code></pre>
+<p>Getters and setters read as properties. A Java interface with one method accepts a lambda. Java collections appear as Kotlin's mutable ones.</p>
+<h3>The SDK from Kotlin</h3>
+<p>This sample needs the Android SDK and was not compiled with the others:</p>
+<pre><code class="language-kotlin">class ExportActivity : ComponentActivity() {
+    private lateinit var binding: ActivityExportBinding           // assigned in onCreate, before any use
+
+    override fun onCreate(savedInstanceState: Bundle?) {          // Bundle? because the SDK marks it @Nullable
+        super.onCreate(savedInstanceState)
+        binding = ActivityExportBinding.inflate(layoutInflater)   // getLayoutInflater() read as a property
+        setContentView(binding.root)
+
+        binding.export.setOnClickListener { view -&gt;               // a lambda for View.OnClickListener
+            val month = intent.getStringExtra(&quot;month&quot;) ?: return@setOnClickListener   // an extra can be missing
+            view.isEnabled = false
+            startExport(month)
+        }
+    }
+}
+</code></pre>
+<p>The SDK is annotated with <code>@Nullable</code> and <code>@NonNull</code>, and the compiler reads those. That is why <code>savedInstanceState</code> is <code>Bundle?</code> and why <code>getStringExtra</code> forces you to handle a missing value.</p>
+<h3>Kotlin written for Java callers</h3>
+<pre><code class="language-kotlin">@file:JvmName(&quot;MoneyFormat&quot;)                       // Java sees MoneyFormat.rupees(...), not a ...Kt class
+
+import java.io.IOException
+
+@JvmOverloads                                      // also generates rupees(long) for Java callers
+fun rupees(minor: Long, withSymbol: Boolean = true): String =
+    (if (withSymbol) &quot;₹&quot; else &quot;&quot;) + &quot;${minor / 100}.${(minor % 100).toString().padStart(2, '0')}&quot;
+
+class Ledger {
+    companion object {
+        @JvmStatic fun empty(): Ledger = Ledger()  // Ledger.empty() in Java, not Ledger.Companion.empty()
+        const val VERSION = 3                      // a real static final field
+    }
+
+    @Throws(IOException::class)                    // Kotlin has no checked exceptions; this declares one for javac
+    fun export(path: String) { if (path.isBlank()) throw IOException(&quot;No path&quot;) }
+}
+
+fun interface AmountRule { fun allows(minor: Long): Boolean }     // a single-method interface, usable as a lambda
+
+val underCap = AmountRule { it &lt;= 10_000_000 }
+</code></pre>
+<table>
+<thead><tr><th>Kotlin</th><th>What Java sees</th></tr></thead>
+<tbody>
+<tr><td>Top-level function in <code>Money.kt</code></td><td>a static method on <code>MoneyKt</code>, or the name given by <code>@file:JvmName</code></td></tr>
+<tr><td>Default arguments</td><td>only the full signature, unless <code>@JvmOverloads</code></td></tr>
+<tr><td>Property <code>val id</code></td><td><code>getId()</code></td></tr>
+<tr><td>Companion member</td><td><code>Ledger.Companion.empty()</code>, or <code>Ledger.empty()</code> with <code>@JvmStatic</code></td></tr>
+<tr><td><code>object Flags</code></td><td><code>Flags.INSTANCE</code></td></tr>
+<tr><td><code>suspend fun</code></td><td>a method with an extra <code>Continuation</code> parameter; do not call it from Java</td></tr>
+</tbody></table>
+<h2>End-to-end flow: a click listener</h2>
+<ol>
+<li><code>setOnClickListener</code> is a Java method that takes <code>View.OnClickListener</code>, an interface with one method.</li>
+<li>The compiler accepts the lambda and generates an object that implements the interface.</li>
+<li>On a tap the framework calls <code>onClick(view)</code> on that object, which runs the lambda body.</li>
+<li>Inside, <code>getStringExtra</code> returns <code>String?</code>, so the code cannot continue without the Elvis operator deciding what a missing extra means.</li>
+</ol>
+<h2>Failure modes</h2>
+<ul>
+<li><strong>Unannotated Java.</strong> A library without nullability annotations gives you platform types. Assign one to a non-null type and a null from Java throws on that line.</li>
+<li><strong>Null from Java into Kotlin.</strong> Kotlin checks non-null parameters of public functions on entry. A Java caller that passes null gets a <code>NullPointerException</code> naming the parameter.</li>
+<li><strong>Exceptions Java cannot catch.</strong> Without <code>@Throws</code>, <code>javac</code> rejects a <code>catch (IOException e)</code> around a Kotlin call.</li>
+<li><strong>Read-only lists in Java hands.</strong> A Kotlin <code>List</code> passed to Java is a <code>java.util.List</code>, and Java may call <code>add</code> on it.</li>
+<li><strong>Kotlin keywords as Java names.</strong> A Java method called <code>when</code> or <code>in</code> needs backticks: <code>Mockito.`when`(…)</code>.</li>
+<li><strong>Converted code that was never reviewed.</strong> The automatic Java-to-Kotlin converter produces Java-shaped Kotlin full of <code>!!</code>.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Write new code in Kotlin, and convert a Java file when you are already changing it and it has tests. Converting a stable file for its own sake risks regressions for no user-visible gain. Keep the surface that Java calls small, because every annotation on it is a compromise made for the other language. If the team and the codebase are staying in Java, the <a href="../java/">Java edition of the Android book</a> describes that path and what it gives up.</p>
+<h2>Production and security</h2>
+<p>Treat every platform type and every value from another app as nullable until checked. <code>internal</code> declarations are public in the bytecode, so Java code in another module can call them; do not rely on <code>internal</code> to hide anything from Java.</p>
+<p>For a library with Java consumers, the generated names are part of your binary interface. Renaming a file renames its class.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Write a small Java class that calls <code>rupees</code>, <code>Ledger.empty()</code> and <code>export</code> from the sample. Remove each annotation in turn and read the Java error.</li>
+<li><strong>Investigate.</strong> Find a Java library you use that lacks nullability annotations. List the calls where you assumed non-null.</li>
+<li><strong>Challenge.</strong> Plan the migration of one Java feature module to Kotlin over three releases, with the app shippable at every step.</li>
+</ul></article>
+<article id="ch-14" data-num="14" data-part="IV · On Android" data-layer="all" data-title="Capstone: a ledger in pure Kotlin" hidden><div class="eyebrow">IV · On Android · Chapter 14</div><h1>Capstone: a ledger in pure Kotlin</h1><p class="lede">Every part of the language in one small, tested piece of Kosh.</p><h2>Why it exists</h2>
+<p>Language features are learned one at a time and used together. This chapter builds Kosh's ledger with no Android in it: about seventy lines that use value and data classes, sealed results, operators, a functional interface, null-safe parsing, collections and a <code>StateFlow</code>. It runs on the JVM, so its tests take milliseconds.</p>
+<h2>Mental model</h2>
+<blockquote>
+<p>Model the domain with types first. When the types are right, most functions are short and most wrong calls do not compile.</p>
+</blockquote>
+<h2>Mechanics</h2>
+<h3>The ledger</h3>
+<pre><code class="language-kotlin">import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlin.math.abs
+
+@JvmInline value class AccountId(val raw: String)
+
+data class Money(val minor: Long, val currency: String = &quot;INR&quot;) : Comparable&lt;Money&gt; {
+    operator fun plus(other: Money) = copy(minor = Math.addExact(minor, same(other).minor))        // overflow throws
+    operator fun minus(other: Money) = copy(minor = Math.subtractExact(minor, same(other).minor))
+    override fun compareTo(other: Money) = minor.compareTo(same(other).minor)
+    private fun same(other: Money) = other.also { require(it.currency == currency) { &quot;$currency vs ${it.currency}&quot; } }
+
+    companion object {
+        val ZERO = Money(0)
+
+        /** Null for anything that is not a positive amount with at most two decimals. */
+        fun parse(text: String): Money? =
+            text.trim().replace(&quot;,&quot;, &quot;&quot;).toBigDecimalOrNull()
+                ?.takeIf { it.signum() &gt; 0 &amp;&amp; it.scale() in 0..2 }       // 0..2 also rejects &quot;1e2&quot;
+                ?.let { runCatching { it.movePointRight(2).longValueExact() }.getOrNull() }
+                ?.let { Money(it) }
+    }
+}
+
+fun Money.format(): String =
+    (if (minor &lt; 0) &quot;−&quot; else &quot;&quot;) + &quot;₹${abs(minor) / 100}.${(abs(minor) % 100).toString().padStart(2, '0')}&quot;
+
+sealed interface Entry {
+    val id: String
+    data class Credit(override val id: String, val from: String, val amount: Money) : Entry
+    data class Debit(override val id: String, val to: String, val amount: Money) : Entry
+}
+
+sealed interface PostResult {
+    data class Posted(val balance: Money) : PostResult
+    data class Refused(val reason: String) : PostResult
+    data object Duplicate : PostResult
+}
+
+fun interface LimitsPolicy { fun check(amount: Money): String? }      // null means &quot;allowed&quot;
+
+class Ledger(val account: AccountId, private val limits: LimitsPolicy = LimitsPolicy { null }) {
+    private val _entries = MutableStateFlow&lt;List&lt;Entry&gt;&gt;(emptyList())
+    val entries: StateFlow&lt;List&lt;Entry&gt;&gt; = _entries.asStateFlow()      // observers see every change
+
+    val balance: Money
+        get() = _entries.value.fold(Money.ZERO) { sum, e -&gt;
+            when (e) {
+                is Entry.Credit -&gt; sum + e.amount
+                is Entry.Debit -&gt; sum - e.amount
+            }
+        }
+
+    fun post(entry: Entry): PostResult {
+        if (_entries.value.any { it.id == entry.id }) return PostResult.Duplicate   // the id is an idempotency key
+        if (entry is Entry.Debit) {
+            limits.check(entry.amount)?.let { return PostResult.Refused(it) }
+            if (entry.amount &gt; balance) return PostResult.Refused(&quot;Not enough balance&quot;)
+        }
+        _entries.update { it + entry }                                // a new list; the old one is never changed
+        return PostResult.Posted(balance)
+    }
+}
+
+fun main() {
+    val ledger = Ledger(AccountId(&quot;SB-1001&quot;)) { if (it &gt; Money(10_000_000)) &quot;Above the daily limit&quot; else null }
+    val amount = Money.parse(&quot;2,500.00&quot;) ?: return
+    println(ledger.post(Entry.Credit(&quot;e1&quot;, &quot;Salary&quot;, Money(8_500_000))))
+    println(ledger.post(Entry.Debit(&quot;e2&quot;, &quot;Asha&quot;, amount)))
+    println(ledger.post(Entry.Debit(&quot;e2&quot;, &quot;Asha&quot;, amount)))            // Duplicate
+    println(ledger.post(Entry.Debit(&quot;e3&quot;, &quot;Ravi&quot;, Money(90_000_000)))) // Refused(reason=Above the daily limit)
+    println(ledger.balance.format())                                   // ₹82500.00
+}
+</code></pre>
+<table>
+<thead><tr><th>In the code</th><th>From chapter</th></tr></thead>
+<tbody>
+<tr><td><code>AccountId</code> as a value class; <code>Money</code> as a data class</td><td>6</td></tr>
+<tr><td><code>parse</code> returning <code>Money?</code> through a chain of safe calls</td><td>3</td></tr>
+<tr><td><code>plus</code>, <code>minus</code>, <code>compareTo</code> as operators; the private <code>same</code> check</td><td>5</td></tr>
+<tr><td><code>Money.format()</code> as an extension, outside the class</td><td>8</td></tr>
+<tr><td><code>Entry</code> and <code>PostResult</code> as sealed types; <code>when</code> with no <code>else</code></td><td>6, 10</td></tr>
+<tr><td><code>LimitsPolicy</code> as a <code>fun interface</code>, passed as a trailing lambda</td><td>4, 13</td></tr>
+<tr><td><code>fold</code>, <code>any</code>, and a new list on every post</td><td>7</td></tr>
+<tr><td><code>StateFlow</code> exposed, <code>MutableStateFlow</code> private</td><td>12</td></tr>
+</tbody></table>
+<h3>Tests</h3>
+<pre><code class="language-kotlin">import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+
+class LedgerTest {
+    private val ledger = Ledger(AccountId(&quot;SB-1&quot;))
+
+    @Test fun `a debit above the balance is refused and changes nothing`() {
+        ledger.post(Entry.Credit(&quot;e1&quot;, &quot;Salary&quot;, Money(10_000)))
+        val result = ledger.post(Entry.Debit(&quot;e2&quot;, &quot;Asha&quot;, Money(25_000)))
+        assertEquals(PostResult.Refused(&quot;Not enough balance&quot;), result)
+        assertEquals(Money(10_000), ledger.balance)
+    }
+
+    @Test fun `posting the same id twice is a duplicate`() {
+        val credit = Entry.Credit(&quot;e1&quot;, &quot;Salary&quot;, Money(10_000))
+        assertIs&lt;PostResult.Posted&gt;(ledger.post(credit))
+        assertEquals(PostResult.Duplicate, ledger.post(credit))
+        assertEquals(1, ledger.entries.value.size)
+    }
+
+    @Test fun `only plain amounts with at most two decimals parse`() {
+        assertEquals(Money(25_050), Money.parse(&quot;250.50&quot;))
+        assertEquals(null, Money.parse(&quot;2.505&quot;))
+        assertEquals(null, Money.parse(&quot;1e2&quot;))
+        assertEquals(null, Money.parse(&quot;-5&quot;))
+    }
+}
+</code></pre>
+<p><code>kotlin.test</code> provides the assertions and runs on JUnit. Function names in backticks may contain spaces, which makes a test report read as a list of rules.</p>
+<h3>Java habits and their Kotlin forms</h3>
+<table>
+<thead><tr><th>Java habit</th><th>Kotlin</th></tr></thead>
+<tbody>
+<tr><td><code>if (x != null) x.foo()</code></td><td><code>x?.foo()</code></td></tr>
+<tr><td>Field, getter and setter</td><td>a property</td></tr>
+<tr><td>Static utility class</td><td>top-level or extension function</td></tr>
+<tr><td>Builder</td><td>named and default arguments, or <code>apply</code></td></tr>
+<tr><td><code>instanceof</code> then cast</td><td><code>is</code> with a smart cast, or <code>when</code></td></tr>
+<tr><td>Anonymous inner class</td><td>lambda</td></tr>
+<tr><td>Class with only fields</td><td><code>data class</code></td></tr>
+<tr><td>Integer or string status codes</td><td><code>enum</code> or <code>sealed</code></td></tr>
+<tr><td>Loop with an accumulator</td><td><code>filter</code>, <code>map</code>, <code>sumOf</code>, <code>fold</code></td></tr>
+<tr><td><code>getInstance()</code> singleton</td><td><code>object</code></td></tr>
+<tr><td><code>try</code>/<code>finally</code> to close</td><td><code>use</code></td></tr>
+<tr><td>Thread and callback</td><td>suspending function</td></tr>
+</tbody></table>
+<h2>End-to-end flow: posting the same debit twice</h2>
+<ol>
+<li><code>post(Debit("e2", …))</code> checks for an existing entry with that id. There is none.</li>
+<li>The limits policy returns null, meaning allowed.</li>
+<li><code>entry.amount &gt; balance</code> calls <code>compareTo</code>, which first checks that the currencies match.</li>
+<li><code>update</code> swaps in a new list with the entry appended, and the <code>StateFlow</code> notifies its collectors.</li>
+<li>The function returns <code>Posted</code> with a balance folded from the entries. The balance is never stored separately, so it cannot disagree with them.</li>
+<li>The second <code>post</code> with id "e2" finds the entry at step 1 and returns <code>Duplicate</code>. Nothing changes.</li>
+</ol>
+<h2>Failure modes</h2>
+<p>This design has limits, and you should know them:</p>
+<ul>
+<li><strong><code>post</code> is not thread-safe.</strong> It checks and then acts. Two threads posting the same id at once can both pass the duplicate check. <code>update</code> makes only the list swap atomic. Confine the ledger to one dispatcher or guard <code>post</code> with a <code>Mutex</code>.</li>
+<li><strong><code>balance</code> walks every entry on each read.</strong> Fine for hundreds of entries, wrong for a hundred thousand.</li>
+<li><strong>It lives in memory.</strong> Process death empties it. Persistence is the subject of the <a href="../kotlin/#ch-15">Room chapter of the Android book</a>.</li>
+<li><strong>The duplicate check trusts the caller.</strong> It only works if a retry reuses the id of the original attempt.</li>
+</ul>
+<h2>Trade-offs and when not to use it</h2>
+<p>Types-first design costs time before the first feature works. It can also be overdone: not every <code>String</code> needs its own class. Wrap identifiers and money, the values you could swap by accident and regret. Leave a display label as a <code>String</code>.</p>
+<h2>Production and security</h2>
+<p>A ledger on a phone is a cache and a queue of intentions. The server decides balances and enforces limits; the checks here exist so the user gets an answer quickly, and anyone with the APK can remove them. Never treat a client-side check as a control.</p>
+<h2>Practice</h2>
+<ul>
+<li><strong>Lab.</strong> Make <code>post</code> safe to call from several coroutines, and write a test that fails without your change.</li>
+<li><strong>Investigate.</strong> Replace <code>scale() in 0..2</code> with <code>scale() &lt;= 2</code> and run the tests. Explain the failure.</li>
+<li><strong>Challenge.</strong> Add reversals: an entry that cancels an earlier one. Decide what the types must forbid.</li>
+</ul>
+<h2>Where next</h2>
+<p>You now have the language. <a href="../kotlin/">Android from First Principles</a> uses it to build the rest of Kosh: the platform, Compose, architecture from MVC onward, data, connectivity and release.</p></article>
+    </main>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function(){
+  var LAYERS=[["platform","Platform"],["ui","UI"],["state","State holder"],["domain","Domain"],["data","Data"],["services","Services"]];
+  var arts=[].slice.call(document.querySelectorAll("article"));
+  var chapters=arts.filter(function(a){return a.dataset.num;});
+  var toc=document.getElementById("toc"), main=document.getElementById("main");
+  var read={};
+  try{read=JSON.parse(localStorage.getItem("kfp-read")||"{}")||{};}catch(e){read={};}
+  function save(){try{localStorage.setItem("kfp-read",JSON.stringify(read));}catch(e){}}
+
+  // contents
+  var html='<a href="#cover" data-id="cover"><span class="n">·</span>Start here</a>', part="";
+  chapters.forEach(function(a){
+    if(a.dataset.part!==part){part=a.dataset.part;html+="<h4>"+part+"</h4>";}
+    html+='<a href="#'+a.id+'" data-id="'+a.id+'"><span class="n">'+a.dataset.num+'</span><span>'+a.dataset.title+'</span></a>';
+  });
+  toc.innerHTML=html;
+
+  // chapter chrome: map strip, footer, code copy, table wrap
+  chapters.forEach(function(a,i){
+    var on=a.dataset.layer.split(",");
+    var strip='<div class="map" aria-label="Where this chapter sits in the app">';
+    LAYERS.forEach(function(l,j){
+      strip+=(j?'<span class="arrow">→</span>':'')+'<span class="'+(on.indexOf(l[0])>-1||on[0]==="all"?"on":"")+'">'+l[1]+'</span>';
+    });
+    a.querySelector(".lede").insertAdjacentHTML("afterend",strip+"</div>");
+    var prev=chapters[i-1], next=chapters[i+1];
+    var f='<div class="foot">'+(prev?'<a class="btn" href="#'+prev.id+'">← '+prev.dataset.title+'</a>':'<a class="btn" href="#cover">← Start</a>')+
+      '<button class="btn mark" data-id="'+a.id+'"></button>'+
+      (next?'<a class="btn primary" href="#'+next.id+'">'+next.dataset.title+' →</a>':'')+'</div>';
+    a.insertAdjacentHTML("beforeend",f);
+  });
+  document.querySelectorAll("table").forEach(function(t){var w=document.createElement("div");w.className="tablewrap";t.parentNode.insertBefore(w,t);w.appendChild(t);});
+  document.querySelectorAll("pre").forEach(function(p){
+    var w=document.createElement("div");w.className="codewrap";p.parentNode.insertBefore(w,p);w.appendChild(p);
+    var b=document.createElement("button");b.className="copy";b.textContent="Copy";w.appendChild(b);
+    b.addEventListener("click",function(){
+      try{navigator.clipboard.writeText(p.innerText).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy";},1200);},function(){b.textContent="Select and copy";});}
+      catch(e){b.textContent="Select and copy";}
+    });
+  });
+  if(window.hljs){try{hljs.configure({ignoreUnescapedHTML:true});document.querySelectorAll("pre code").forEach(function(c){hljs.highlightElement(c);});}catch(e){}}
+
+  function paint(){
+    var done=chapters.filter(function(a){return read[a.id];}).length;
+    document.getElementById("bar").style.width=(100*done/chapters.length)+"%";
+    document.getElementById("barlabel").textContent=done+" of "+chapters.length+" chapters read";
+    toc.querySelectorAll("a").forEach(function(l){l.classList.toggle("read",!!read[l.dataset.id]);});
+    document.querySelectorAll(".mark").forEach(function(b){b.textContent=read[b.dataset.id]?"✓ Read":"Mark as read";});
+  }
+  document.addEventListener("click",function(e){
+    var m=e.target.closest(".mark");
+    if(m){read[m.dataset.id]=!read[m.dataset.id];save();paint();}
+    if(e.target.closest("#toc a")||e.target.id==="closeMenu")document.body.classList.remove("menu");
+    if(e.target.id==="openMenu")document.body.classList.add("menu");
+  });
+  function show(){
+    var id=(location.hash||"#cover").slice(1), t=document.getElementById(id);
+    if(!t||t.tagName!=="ARTICLE"){id="cover";t=document.getElementById(id);}
+    arts.forEach(function(a){a.hidden=a!==t;});
+    toc.querySelectorAll("a").forEach(function(l){l.classList.toggle("on",l.dataset.id===id);});
+    main.scrollTop=0;window.scrollTo(0,0);
+    var on=toc.querySelector("a.on");if(on&&on.scrollIntoView)on.scrollIntoView({block:"nearest"});
+  }
+  window.addEventListener("hashchange",show);
+  document.getElementById("q").addEventListener("input",function(){
+    var q=this.value.trim().toLowerCase();
+    toc.querySelectorAll("a").forEach(function(l){
+      var a=document.getElementById(l.dataset.id);
+      l.style.display=(!q||a.textContent.toLowerCase().indexOf(q)>-1)?"":"none";
+    });
+    toc.querySelectorAll("h4").forEach(function(h){h.style.display=q?"none":"";});
+  });
+  var r=document.getElementById("blurRange");
+  if(r)r.addEventListener("input",function(){document.getElementById("demoCard").style.setProperty("--r",r.value+"px");document.getElementById("blurVal").textContent=r.value+"dp";});
+  document.addEventListener("keydown",function(e){
+    if(e.target.tagName==="INPUT")return;
+    var cur=(location.hash||"#cover").slice(1), i=chapters.findIndex(function(a){return a.id===cur;});
+    if(e.key==="ArrowRight"&&i<chapters.length-1)location.hash=chapters[i+1].id;
+    if(e.key==="ArrowLeft"&&i>0)location.hash=chapters[i-1].id;
+  });
+  paint();show();
+})();
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Android from First Principles</title>
-<meta name="description" content="Three free books on building Android apps: Kotlin, Java and React Native editions.">
+<meta name="description" content="Four free books: the Kotlin language, and building Android apps in Kotlin, Java and React Native.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Literata:opsz,wght@7..72,400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
@@ -22,7 +22,7 @@ main{position:relative;max-width:1040px;margin:0 auto;padding:64px 20px 48px}
 .eyebrow{font-family:"JetBrains Mono",monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 h1{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:700;font-size:clamp(2.1rem,5vw,3.2rem);line-height:1.05;margin:.3em 0 .4em;text-wrap:balance}
 p.lede{max-width:62ch;color:var(--muted);margin:0 0 32px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:18px}
 a.card{display:flex;flex-direction:column;gap:10px;padding:26px 24px;border-radius:24px;text-decoration:none;color:var(--ink);
  background:var(--glass);border:1px solid var(--stroke);box-shadow:var(--shadow);
  -webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%);transition:transform .15s}
@@ -32,8 +32,8 @@ a.card:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 .card p{margin:0;font-size:.95rem;color:var(--muted)}
 .card .tag{font-family:"JetBrains Mono",monospace;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase}
 .card .go{margin-top:auto;padding-top:10px;font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:700}
-.k .tag{color:#0a7a53}.j .tag{color:#1b5fc4}.r .tag{color:#0b6b8f}
-@media (prefers-color-scheme:dark){.k .tag{color:#5fe8a8}.j .tag{color:#8fbcff}.r .tag{color:#6fdcf5}}
+.l .tag{color:#7a4bc4}.k .tag{color:#0a7a53}.j .tag{color:#1b5fc4}.r .tag{color:#0b6b8f}
+@media (prefers-color-scheme:dark){.l .tag{color:#c7a8ff}.k .tag{color:#5fe8a8}.j .tag{color:#8fbcff}.r .tag{color:#6fdcf5}}
 footer{margin-top:36px;font-size:.85rem;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){a.card{transition:none}}
 </style>
@@ -41,10 +41,16 @@ footer{margin-top:36px;font-size:.85rem;color:var(--muted)}
 <body>
 <div class="field"></div>
 <main>
-  <div class="eyebrow">Three books · one app · one architecture</div>
+  <div class="eyebrow">Four books · one app · one architecture</div>
   <h1>Android from First Principles</h1>
-  <p class="lede">The same journey told three ways: platform fundamentals, the UI framework, patterns from MVC onward, complex applications, connectivity across services, and glass UI. Every edition builds the same wallet app, Kosh, in 28 chapters.</p>
+  <p class="lede">The same journey told three ways: platform fundamentals, the UI framework, patterns from MVC onward, complex applications, connectivity across services, and glass UI. Every edition builds the same wallet app, Kosh, in 28 chapters. New to Kotlin? Start with the language book.</p>
   <div class="grid">
+    <a class="card l" href="kotlin-language/">
+      <span class="tag">Kotlin · The language</span>
+      <h2>Kotlin from First Principles</h2>
+      <p>Null safety, lambdas, sealed types, collections, coroutines and Flow, and working with Java, in 14 chapters. Every sample was compiled and run.</p>
+      <span class="go">Read the Kotlin language book →</span>
+    </a>
     <a class="card k" href="kotlin/">
       <span class="tag">Kotlin · Jetpack Compose</span>
       <h2>Android from First Principles</h2>
@@ -64,7 +70,7 @@ footer{margin-top:36px;font-size:.85rem;color:var(--muted)}
       <span class="go">Read the React Native book →</span>
     </a>
   </div>
-  <footer>Written November 2026 against Android 17 (API 37), Kotlin 2.4, React Native 0.88 and Expo SDK 58. Code samples are illustrative and have not been compiled; check library release notes before you pin versions.</footer>
+  <footer>Written November 2026 against Android 17 (API 37), Kotlin 2.4, React Native 0.88 and Expo SDK 58. Code samples in the three Android books are illustrative and have not been compiled; check library release notes before you pin versions. The samples in the Kotlin language book were compiled and run with kotlinc 2.4.20.</footer>
 </main>
 </body>
 </html>

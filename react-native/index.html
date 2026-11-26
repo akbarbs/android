@@ -42,7 +42,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17p
    radial-gradient(46vmax 46vmax at 62% 96%,var(--blob3),transparent 62%);}
 .glass{background:var(--glass);border:1px solid var(--stroke);border-radius:22px;box-shadow:var(--shadow);
   -webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%)}
-.app{position:relative;z-index:1;display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;height:100%;padding:18px}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:320px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:18px;height:100%;padding:18px}
+/* the row is capped at the viewport, so the sidebar list and the reading column scroll inside it */
+.col{display:flex;flex-direction:column;min-width:0;min-height:0}
 /* sidebar */
 .side{display:flex;flex-direction:column;min-height:0;padding:18px 14px 14px}
 .brand{font-family:var(--display);font-weight:700;font-size:1.25rem;line-height:1.15;padding:0 6px;text-wrap:balance}
@@ -60,7 +62,7 @@ nav a.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
 nav a.read .n{color:var(--accent)}
 nav a.read .n::after{content:"✓"}
 /* main */
-.main{min-height:0;overflow:auto;scroll-behavior:smooth;padding:0}
+.main{flex:1;min-height:0;overflow:auto;scroll-behavior:smooth;padding:0}
 .top{display:none}
 article{max-width:780px;margin:0 auto;padding:44px 40px 30px}
 article[hidden]{display:none}
@@ -116,6 +118,7 @@ tr:last-child td{border-bottom:0}
 @media (max-width:880px){
   body{overflow:auto}
   .app{display:block;height:auto;padding:12px}
+  .col{display:block}
   .side{position:fixed;inset:12px;z-index:5;display:none;background:var(--glass-strong)}
   body.menu .side{display:flex}
   .top{display:flex;position:sticky;top:8px;z-index:4;justify-content:space-between;align-items:center;padding:8px 10px 8px 16px;margin-bottom:12px;border-radius:16px;font-family:var(--display);font-weight:700;background:var(--glass-strong)}
@@ -137,7 +140,7 @@ tr:last-child td{border-bottom:0}
     <div class="bar"><i id="bar"></i></div><div class="barlabel" id="barlabel"></div>
     <nav id="toc" aria-label="Contents"></nav>
   </aside>
-  <div>
+  <div class="col">
     <div class="top glass"><span>React Native from First Principles</span><button class="btn" id="openMenu">Contents</button></div>
     <main class="main glass" id="main">
 <article id="cover"><div class="eyebrow">A book for engineers who already build systems</div>

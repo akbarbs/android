@@ -677,7 +677,9 @@ dependencies {
                 &lt;category android:name=&quot;android.intent.category.LAUNCHER&quot; /&gt;
             &lt;/intent-filter&gt;
         &lt;/activity&gt;
-        &lt;service android:name=&quot;.push.KoshMessagingService&quot; android:exported=&quot;false&quot; /&gt;
+        &lt;service android:name=&quot;.push.KoshMessagingService&quot; android:exported=&quot;false&quot;&gt;
+            &lt;intent-filter&gt;&lt;action android:name=&quot;com.google.firebase.MESSAGING_EVENT&quot; /&gt;&lt;/intent-filter&gt;
+        &lt;/service&gt;
     &lt;/application&gt;
 &lt;/manifest&gt;
 </code></pre>
@@ -714,7 +716,7 @@ startActivity(Intent.createChooser(share, &quot;Share receipt&quot;));
 
     Notification n = new NotificationCompat.Builder(context, &quot;payments&quot;)
             .setSmallIcon(R.drawable.ic_stat_kosh).setContentTitle(title).setContentText(body)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)       // hidden on a locked screen
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)       // lock screen shows the app name, not the content
             .setContentIntent(pending).setAutoCancel(true).build();
 
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -1580,15 +1582,26 @@ public class TransferViewModel extends ViewModel {
 
     public LiveData&lt;TransferUiState&gt; state() { return state; }      // read-only to the view
 
-    public void onAmountChange(String text) { state.setValue(current().withAmount(text)); }
+    @Nullable private String pendingKey;                             // one idempotency key per user intent
+
+    public void onAmountChange(String text) {
+        pendingKey = null;                                           // a new amount is a new intent
+        state.setValue(current().withAmount(text));
+    }
 
     public void onSend(String payeeId) {
         if (current().sending()) return;                             // no double submit
         state.setValue(current().asSending());
-        work.add(sendMoney.execute(payeeId, current().amount())      // Single&lt;TransferResult&gt;, chapter 14
+        if (pendingKey == null) pendingKey = UUID.randomUUID().toString();
+        work.add(sendMoney.execute(payeeId, current().amount(), pendingKey)   // Single&lt;TransferResult&gt;, chapter 14
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(result -&gt; state.setValue(current().withResult(result)),
+                .subscribe(this::onResult,
                            error -&gt; state.setValue(current().withError(&quot;Something went wrong&quot;))));
+    }
+
+    private void onResult(TransferResult result) {
+        if (!(result instanceof TransferResult.NetworkError)) pendingKey = null;   // an unknown outcome is retried with the same key
+        state.setValue(current().withResult(result));
     }
 
     private TransferUiState current() { return Objects.requireNonNull(state.getValue()); }
@@ -1629,7 +1642,7 @@ public void onEvent(TransferEvent event) {                           // in the V
     TransferUiState before = current();
     state.setValue(TransferReducer.reduce(before, event));
     if (event instanceof TransferEvent.SendClicked &amp;&amp; !before.sending()) {
-        work.add(sendMoney.execute(payeeId, before.amount())
+        work.add(sendMoney.execute(payeeId, before.amount(), UUID.randomUUID().toString())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(r -&gt; onEvent(new TransferEvent.Completed(r)),
                            t -&gt; onEvent(new TransferEvent.Completed(new TransferResult.NetworkError()))));
@@ -1788,12 +1801,12 @@ public class SendMoneyUseCase {
         this.payments = payments; this.limits = limits;
     }
 
-    public Single&lt;TransferResult&gt; execute(String payeeId, String amountText) {
+    public Single&lt;TransferResult&gt; execute(String payeeId, String amountText, String idempotencyKey) {
         Money amount = Money.parse(amountText, &quot;INR&quot;);
         if (amount == null) return Single.just(new TransferResult.Declined(&quot;Enter an amount&quot;));
         String refusal = limits.check(amount);
         if (refusal != null) return Single.just(new TransferResult.Declined(refusal));
-        return payments.transfer(payeeId, amount);
+        return payments.transfer(payeeId, amount, idempotencyKey);
     }
 }
 </code></pre>
@@ -1927,9 +1940,9 @@ executors.io.execute(() -&gt; {
 
     @Inject DefaultPaymentsRepository(PaymentsApi api, TransactionDao dao) { this.api = api; this.dao = dao; }
 
-    @Override public Single&lt;TransferResult&gt; transfer(String payeeId, Money amount) {
-        return api.transfer(UUID.randomUUID().toString(), new TransferRequest(payeeId, amount.minor()))
-                .flatMap(dto -&gt; dao.upsert(List.of(TransactionMappers.toEntity(dto)))     // then save
+    @Override public Single&lt;TransferResult&gt; transfer(String payeeId, Money amount, String idempotencyKey) {
+        return api.transfer(idempotencyKey, new TransferRequest(payeeId, amount.minor()))    // the caller owns the key
+                .flatMap(dto -&gt; dao.upsert(List.of(TransactionMappers.fromTransfer(dto, payeeId, amount)))   // then save
                         .toSingleDefault((TransferResult) new TransferResult.Success(dto.reference)))
                 .onErrorReturn(e -&gt; e instanceof IOException
                         ? new TransferResult.NetworkError() : new TransferResult.Declined(&quot;Try again&quot;))
@@ -2161,15 +2174,18 @@ public final class NetworkModule {
 <h3>Errors as types</h3>
 <pre><code class="language-java">public sealed interface ApiResult&lt;T&gt; {
     record Ok&lt;T&gt;(T value) implements ApiResult&lt;T&gt; {}
-    record Rejected&lt;T&gt;(int code, @Nullable String reason) implements ApiResult&lt;T&gt; {}   // the server said no
+    record Rejected&lt;T&gt;(int code, @Nullable String reason) implements ApiResult&lt;T&gt; {    // the server said no
+        /** Only a definitive 4xx is a verdict. 401, 408, 429 and every 5xx may succeed later with the same key. */
+        public boolean isFinal() { return code &gt;= 400 &amp;&amp; code &lt; 500 &amp;&amp; code != 401 &amp;&amp; code != 408 &amp;&amp; code != 429; }
+    }
     record Unreachable&lt;T&gt;() implements ApiResult&lt;T&gt; {}                                 // never got an answer
     record Unknown&lt;T&gt;() implements ApiResult&lt;T&gt; {}                                     // sent, outcome not known
 
     static &lt;T&gt; Single&lt;ApiResult&lt;T&gt;&gt; from(Single&lt;T&gt; call) {
         return call.&lt;ApiResult&lt;T&gt;&gt;map(Ok::new).onErrorReturn(e -&gt; {
             if (e instanceof HttpException h) return new Rejected&lt;&gt;(h.code(), h.message());
-            if (e instanceof SocketTimeoutException) return new Unknown&lt;&gt;();
-            if (e instanceof IOException) return new Unreachable&lt;&gt;();
+            if (e instanceof UnknownHostException || e instanceof ConnectException) return new Unreachable&lt;&gt;();   // nothing was sent
+            if (e instanceof IOException) return new Unknown&lt;&gt;();    // timeouts, resets, a cut-off response: it may have arrived
             throw Exceptions.propagate(e);                  // a bug: let it crash
         });
     }
@@ -2271,11 +2287,21 @@ public class OutboxWorker extends Worker {
                     new TransferRequest(item.payeeId, item.amountMinor))).blockingGet();
 
             if (r instanceof ApiResult.Ok&lt;TransferDto&gt; ok) outbox.markConfirmedBlocking(item.idempotencyKey, ok.value().reference);
-            else if (r instanceof ApiResult.Rejected&lt;TransferDto&gt; no) outbox.markFailedBlocking(item.idempotencyKey, no.reason());
-            else return Result.retry();                          // unreachable or unknown: same key, later
+            else if (r instanceof ApiResult.Rejected&lt;TransferDto&gt; no &amp;&amp; no.isFinal())    // the server refused this transfer
+                outbox.markFailedBlocking(item.idempotencyKey, no.reason());
+            else return Result.retry();                          // 401, 408, 429, 5xx, unreachable or unknown: same key, later
         }
         return Result.success();
     }
+
+    /** Expedited work runs as a foreground service before Android 12, so it must supply a notification. */
+    @NonNull @Override public ForegroundInfo getForegroundInfo() { return syncForegroundInfo(getApplicationContext()); }
+}
+
+static ForegroundInfo syncForegroundInfo(Context context) {
+    Notification n = new NotificationCompat.Builder(context, &quot;sync&quot;)           // the channel is created at app start
+            .setSmallIcon(R.drawable.ic_stat_kosh).setContentTitle(&quot;Finishing your transfer&quot;).setOngoing(true).build();
+    return new ForegroundInfo(7, n);                                           // only ever shown below Android 12
 }
 
 static void enqueueOutbox(Context context) {
@@ -2580,8 +2606,9 @@ static void enqueuePushSync(Context context, String accountId) {
             .setInputData(new Data.Builder().putString(&quot;accountId&quot;, accountId).build())
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build();
-    // a burst of pushes collapses into one sync
-    WorkManager.getInstance(context).enqueueUniqueWork(&quot;push-sync&quot;, ExistingWorkPolicy.KEEP, request);
+    // one at a time, in order. KEEP would drop a push that arrives while a sync is already running.
+    // PushSyncWorker overrides getForegroundInfo() as OutboxWorker does in chapter 17: expedited work needs it below Android 12.
+    WorkManager.getInstance(context).enqueueUniqueWork(&quot;push-sync&quot;, ExistingWorkPolicy.APPEND_OR_REPLACE, request);
 }
 </code></pre>
 <p>Send <strong>data messages</strong> and let the app decide what to show. The handler has only a few seconds, so it enqueues work and returns.</p>
@@ -2990,9 +3017,9 @@ public class TokenVault {
 <p>Define <code>colorGlassScrim</code> in your theme at about 55% of the surface colour, with a different value in <code>values-night</code>.</p>
 <h3>Level 1: backdrop blur</h3>
 <p>A view that draws a blurred copy of whatever a sibling view shows beneath it:</p>
-<pre><code class="language-java">@RequiresApi(31)
+<pre><code class="language-java">/** Safe to inflate on every API level: RenderNode (API 29) and RenderEffect (API 31) are touched only inside the guard. */
 public class BackdropBlurView extends View {
-    private final RenderNode node = new RenderNode(&quot;backdrop&quot;);
+    @Nullable private RenderNode node;                 // created on first blur, never on old devices
     private final int[] mine = new int[2], theirs = new int[2];
     @Nullable private View source;
     private float radiusPx = 60f;
@@ -3005,7 +3032,8 @@ public class BackdropBlurView extends View {
     public void setTint(@ColorInt int tint) { this.tint = tint; invalidate(); }
 
     @Override protected void onDraw(@NonNull Canvas canvas) {
-        if (source != null &amp;&amp; canvas.isHardwareAccelerated()) {
+        if (source != null &amp;&amp; Build.VERSION.SDK_INT &gt;= 31 &amp;&amp; canvas.isHardwareAccelerated()) {
+            if (node == null) node = new RenderNode(&quot;backdrop&quot;);
             node.setPosition(0, 0, getWidth(), getHeight());
             node.setRenderEffect(RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP));
 
@@ -3176,11 +3204,19 @@ static void revealBalance(TextView dots, TextView amount, boolean hidden) {
 <pre><code class="language-java">// A spring handles interruption: reverse it midway and it continues from the current velocity
 static void pressFeedback(View button, boolean pressed) {
     float target = pressed ? 0.96f : 1f;
-    for (var property : List.of(DynamicAnimation.SCALE_X, DynamicAnimation.SCALE_Y)) {
-        SpringAnimation spring = new SpringAnimation(button, property, target);
-        spring.getSpring().setStiffness(SpringForce.STIFFNESS_MEDIUM).setDampingRatio(0.6f);
-        spring.start();
+    springFor(button, DynamicAnimation.SCALE_X, R.id.spring_scale_x).animateToFinalPosition(target);
+    springFor(button, DynamicAnimation.SCALE_Y, R.id.spring_scale_y).animateToFinalPosition(target);
+}
+
+/** One spring per view and property, kept in a tag. A new spring on every call would start again from rest. */
+private static SpringAnimation springFor(View view, DynamicAnimation.ViewProperty property, @IdRes int key) {
+    SpringAnimation spring = (SpringAnimation) view.getTag(key);
+    if (spring == null) {
+        spring = new SpringAnimation(view, property);
+        spring.setSpring(new SpringForce().setStiffness(SpringForce.STIFFNESS_MEDIUM).setDampingRatio(0.6f));
+        view.setTag(key, spring);
     }
+    return spring;
 }
 </code></pre>
 <pre><code class="language-java">// Layout changes: capture, change, and the framework animates the difference
@@ -3353,7 +3389,7 @@ public interface TransactionStore {
 <td>UI component</td>
 <td>JVM or device</td>
 <td>One fragment with a given state</td>
-<td><code>FragmentScenario</code>, Espresso</td>
+<td>Espresso, in a Hilt test activity</td>
 </tr>
 <tr>
 <td>Screenshot</td>
@@ -3408,7 +3444,7 @@ public class FakePaymentsRepository implements PaymentsRepository {
     public void release(TransferResult r) { pending.onSuccess(r); }
     public int transferCalls() { return calls; }
 
-    @Override public Single&lt;TransferResult&gt; transfer(String payeeId, Money amount) {
+    @Override public Single&lt;TransferResult&gt; transfer(String payeeId, Money amount, String idempotencyKey) {
         calls++;
         return held ? pending : Single.just(new TransferResult.Success(&quot;KX-1&quot;));
     }
@@ -3434,7 +3470,11 @@ public class TransactionDaoTest {
 }
 </code></pre>
 <pre><code class="language-java">@Test public void showsErrorUnderAmount() {                              // Espresso on a single fragment
-    FragmentScenario.launchInContainer(TransferFragment.class, null, R.style.Theme_Kosh);
+    // FragmentScenario cannot host an @AndroidEntryPoint fragment. HiltTestActivity is an empty @AndroidEntryPoint
+    // activity in the debug source set; the test class carries @HiltAndroidTest and a HiltAndroidRule.
+    ActivityScenario.launch(HiltTestActivity.class).onActivity(activity -&gt;
+            activity.getSupportFragmentManager().beginTransaction()
+                    .replace(android.R.id.content, new TransferFragment()).commitNow());
     onView(withId(R.id.amount)).perform(typeText(&quot;999999&quot;), closeSoftKeyboard());
     onView(withId(R.id.send)).perform(click());
     onView(withText(&quot;Not enough balance&quot;)).check(matches(isDisplayed()));

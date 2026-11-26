@@ -1075,9 +1075,9 @@ useEffect(() =&gt; { setFullName(first + ' ' + last); }, [first, last]);
 import { useColorScheme } from 'react-native';
 
 const light = { bg: '#F4F7FA', surface: '#FFFFFF', text: '#13202B', muted: '#51616F',
-                primary: '#0B6B8F', positive: '#0A7A53', negative: '#B42318' };
+                primary: '#0B6B8F', positive: '#0A7A53', negative: '#B42318', glassScrim: 'rgba(255,255,255,0.55)' };
 const dark: typeof light = { bg: '#060D14', surface: '#101B24', text: '#E7EFF3', muted: '#9DB0BD',
-                primary: '#6FDCF5', positive: '#5FE8A8', negative: '#FF8A7A' };
+                primary: '#6FDCF5', positive: '#5FE8A8', negative: '#FF8A7A', glassScrim: 'rgba(16,27,36,0.55)' };
 
 export const space = { xs: 4, sm: 8, md: 16, lg: 24 } as const;
 export const type = { body: { fontSize: 16, lineHeight: 24 }, title: { fontSize: 22, lineHeight: 28, fontWeight: '700' } } as const;
@@ -1701,11 +1701,13 @@ export const makeSendMoney = ({ payments, limits, newId }: Deps) =&gt;
 <h3>Injection with a composition root and context</h3>
 <pre><code class="language-tsx">// app container: built once, the only place that knows concrete classes
 export function createContainer(config: AppConfig) {
-  const http = createHttpClient(config.apiBase);
-  const db = openDatabase();
+  const session = new Session();                                  // chapter 17
+  const http = createHttpClient(config.apiBase, session.accessToken, config.appVersion);
+  const db = openDatabase();                                      // a promise: repositories await it on first use (chapter 15)
   const payments = new HttpPaymentsRepository(http, db);
   const limits = new DefaultLimitsPolicy();
   return {
+    session,
     sendMoney: makeSendMoney({ payments, limits, newId: () =&gt; Crypto.randomUUID() }),
     transactions: new OfflineFirstTransactionsRepository(http, db),
   };
@@ -1938,9 +1940,9 @@ export async function openDatabase(): Promise&lt;SQLite.SQLiteDatabase&gt; {
   const row = await db.getFirstAsync&lt;{ user_version: number }&gt;('PRAGMA user_version');
   let version = row?.user_version ?? 0;
   while (version &lt; MIGRATIONS.length) {
-    await db.withTransactionAsync(async () =&gt; {
-      await db.execAsync(MIGRATIONS[version]!);
-      await db.execAsync(`PRAGMA user_version = ${version + 1}`);
+    await db.withExclusiveTransactionAsync(async txn =&gt; {      // exclusive: no other query can slip inside
+      await txn.execAsync(MIGRATIONS[version]!);
+      await txn.execAsync(`PRAGMA user_version = ${version + 1}`);
     });
     version++;
   }
@@ -1959,9 +1961,9 @@ export class TransactionsDao {
   }
 
   async upsertMany(rows: Row[]): Promise&lt;void&gt; {
-    await this.db.withTransactionAsync(async () =&gt; {
+    await this.db.withExclusiveTransactionAsync(async txn =&gt; {
       for (const r of rows) {
-        await this.db.runAsync(
+        await txn.runAsync(
           `INSERT INTO transactions (id, account_id, counterparty, amount_minor, currency, posted_at, status)
            VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET status = excluded.status, posted_at = excluded.posted_at`,
@@ -2050,10 +2052,8 @@ export function createHttpClient(baseUrl: string, getToken: () =&gt; string | nu
     const controller = new AbortController();
     const timer = setTimeout(() =&gt; controller.abort(), o.timeoutMs ?? 20_000);
     o.signal?.addEventListener('abort', () =&gt; controller.abort());
-    let sent = false;
     try {
       const token = getToken();
-      sent = true;
       const res = await fetch(baseUrl + path, {
         method: o.method ?? 'GET',
         signal: controller.signal,
@@ -2071,9 +2071,9 @@ export function createHttpClient(baseUrl: string, getToken: () =&gt; string | nu
       const parsed = o.schema.safeParse(await res.json().catch(() =&gt; null));
       return parsed.success ? { ok: true, value: parsed.data } : { ok: false, kind: 'malformed' };
     } catch (e) {
-      const timedOut = controller.signal.aborted &amp;&amp; !o.signal?.aborted;
-      // a write that timed out may have reached the server
-      return timedOut &amp;&amp; sent &amp;&amp; o.method === 'POST' ? { ok: false, kind: 'unknown' } : { ok: false, kind: 'unreachable' };
+      // fetch cannot say whether the request left the device, so a write that failed for any reason
+      // may have reached the server. Only a read is safe to call unreachable.
+      return o.method === 'POST' ? { ok: false, kind: 'unknown' } : { ok: false, kind: 'unreachable' };
     } finally {
       clearTimeout(timer);
     }
@@ -2149,11 +2149,11 @@ export const paymentsApi = (request: ReturnType&lt;typeof createHttpClient&gt;) 
 export async function queueTransfer(db: SQLiteDatabase, payee: Payee, amount: Money): Promise&lt;string&gt; {
   const key = Crypto.randomUUID();                 // one key per user intent, reused on every retry
   const now = Date.now();
-  await db.withTransactionAsync(async () =&gt; {      // both rows, or neither
-    await db.runAsync(
+  await db.withExclusiveTransactionAsync(async txn =&gt; {   // both rows, or neither; nothing else can interleave
+    await txn.runAsync(
       `INSERT INTO outbox (idempotency_key, payee_id, amount_minor, state, created_at) VALUES (?, ?, ?, 'queued', ?)`,
       [key, payee.id, amount.minor, now]);
-    await db.runAsync(
+    await txn.runAsync(
       `INSERT INTO transactions (id, account_id, counterparty, amount_minor, currency, posted_at, status)
        VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
       [`pending-${key}`, payee.fromAccountId, payee.name, -amount.minor, amount.currency, now]);
@@ -2163,17 +2163,25 @@ export async function queueTransfer(db: SQLiteDatabase, payee: Payee, amount: Mo
 }
 
 let draining: Promise&lt;void&gt; | null = null;
+let drainAgain = false;
+
+/** Only a definitive 4xx is a verdict. 401, 408, 429 and every 5xx may succeed later with the same key. */
+const isFinalRejection = (status: number) =&gt; status &gt;= 400 &amp;&amp; status &lt; 500 &amp;&amp; ![401, 408, 429].includes(status);
 
 /** Safe to call from anywhere, any number of times. */
 export function drainOutbox(): Promise&lt;void&gt; {
-  draining ??= (async () =&gt; {
+  if (draining) { drainAgain = true; return draining; }     // queued mid-drain: the running drain goes round once more
+  draining = (async () =&gt; {
     try {
-      for (const item of await outbox.queued()) {
-        const r = await api.transfer({ payeeId: item.payee_id, amountMinor: item.amount_minor, idempotencyKey: item.idempotency_key });
-        if (r.ok) await outbox.markConfirmed(item.idempotency_key, r.value.reference);
-        else if (r.kind === 'rejected') await outbox.markFailed(item.idempotency_key, r.reason);
-        else break;                                // unreachable or unknown: same key, later
-      }
+      do {
+        drainAgain = false;
+        for (const item of await outbox.queued()) {
+          const r = await api.transfer({ payeeId: item.payee_id, amountMinor: item.amount_minor, idempotencyKey: item.idempotency_key });
+          if (r.ok) await outbox.markConfirmed(item.idempotency_key, r.value.reference);
+          else if (r.kind === 'rejected' &amp;&amp; isFinalRejection(r.status)) await outbox.markFailed(item.idempotency_key, r.reason);
+          else break;                              // transient rejection, unreachable or unknown: same key, later
+        }
+      } while (drainAgain);
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
     } finally { draining = null; }
   })();
@@ -2236,7 +2244,7 @@ await BackgroundTask.registerTaskAsync('kosh-sync', { minimumInterval: 6 * 60 })
 <ol>
 <li>The user confirms. One transaction writes the outbox row and a pending transaction.</li>
 <li>The list refetches from SQLite; the payment appears as "Sending".</li>
-<li><code>drainOutbox</code> tries the API and gets <code>unreachable</code>. It stops.</li>
+<li><code>drainOutbox</code> tries the API and gets no answer, so the outcome is <code>unknown</code>. It stops.</li>
 <li>The user leaves the lift. NetInfo reports connectivity; <code>drainOutbox</code> runs again with the same key.</li>
 <li>The server accepts. The outbox row is confirmed; the transaction becomes <code>posted</code>.</li>
 <li>If the app had been killed at step 3 instead, the next app open or background task would do step 4.</li>
@@ -2323,8 +2331,9 @@ export const withAuthRetry = (request: Request, session: Session): Request =&gt;
 }
 </code></pre>
 <p>In practice, give each section its own query so they load, fail and retry independently:</p>
-<pre><code class="language-tsx">const balance = useQuery({ queryKey: ['balance'], queryFn: banking.balance });
-const rates = useQuery({ queryKey: ['rates'], queryFn: market.rates, retry: 1, staleTime: 60_000 });
+<pre><code class="language-tsx">// The client returns ApiResult and never throws; unwrap() throws on a failure so the query can reach isError and retry
+const balance = useQuery({ queryKey: ['balance'], queryFn: ctx =&gt; banking.balance(ctx).then(unwrap) });
+const rates = useQuery({ queryKey: ['rates'], queryFn: ctx =&gt; market.rates(ctx).then(unwrap), retry: 1, staleTime: 60_000 });
 // &lt;BalanceCard&gt; renders from `balance`; &lt;RatesCard&gt; renders &quot;Rates unavailable&quot; when `rates.isError`
 </code></pre>
 <h3>Resilience, borrowed from the server side</h3>

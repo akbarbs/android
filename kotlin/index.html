@@ -495,7 +495,7 @@ fun demo() {
 </code></pre>
 <pre><code class="language-ini"># gradle/libs.versions.toml
 [versions]
-agp = &quot;9.2.1&quot;            # check current releases before pinning
+agp = &quot;9.5.0&quot;            # check current releases before pinning
 kotlin = &quot;2.4.20&quot;
 
 [plugins]
@@ -672,7 +672,9 @@ buildTypes { release { signingConfig = signingConfigs.getByName(&quot;upload&quo
                 &lt;category android:name=&quot;android.intent.category.LAUNCHER&quot; /&gt;
             &lt;/intent-filter&gt;
         &lt;/activity&gt;
-        &lt;service android:name=&quot;.push.KoshMessagingService&quot; android:exported=&quot;false&quot; /&gt;
+        &lt;service android:name=&quot;.push.KoshMessagingService&quot; android:exported=&quot;false&quot;&gt;
+            &lt;intent-filter&gt;&lt;action android:name=&quot;com.google.firebase.MESSAGING_EVENT&quot; /&gt;&lt;/intent-filter&gt;
+        &lt;/service&gt;
     &lt;/application&gt;
 &lt;/manifest&gt;
 </code></pre>
@@ -729,7 +731,7 @@ class MainActivity : ComponentActivity() {
     val notification = NotificationCompat.Builder(context, &quot;payments&quot;)
         .setSmallIcon(R.drawable.ic_stat_kosh)
         .setContentTitle(title).setContentText(body)
-        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)      // hidden on a locked screen
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)      // lock screen shows the app name, not the content
         .setContentIntent(open).setAutoCancel(true)
         .build()
 
@@ -1459,6 +1461,7 @@ fun TransferRoute(onDone: () -&gt; Unit, vm: TransferViewModel = hiltViewModel()
 </table>
 <pre><code class="language-kotlin">@Composable
 fun KoshApp() {
+    var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     NavigationSuiteScaffold(          // bottom bar on compact, rail or drawer when wider
         navigationSuiteItems = {
             item(selected = tab == Tab.Home, onClick = { tab = Tab.Home },
@@ -1554,7 +1557,7 @@ fun KoshNav() {
 <pre><code class="language-kotlin">class TransferModel(private val api: PaymentsApi) {
 
     fun validate(amountText: String, balanceMinor: Long): String? {
-        val minor = amountText.toBigDecimalOrNull()?.movePointRight(2)?.toLong()
+        val minor = runCatching { amountText.toMinor() }.getOrNull()     // the same rule send() uses: &quot;1.005&quot; is rejected here
         return when {
             minor == null || minor &lt;= 0 -&gt; &quot;Enter an amount&quot;
             minor &gt; balanceMinor -&gt; &quot;Not enough balance&quot;
@@ -1751,13 +1754,20 @@ class TransferViewModel @Inject constructor(
     private val _state = MutableStateFlow(TransferUiState())
     val state: StateFlow&lt;TransferUiState&gt; = _state.asStateFlow()
 
-    fun onAmountChange(text: String) = _state.update { it.copy(amount = text, amountError = null) }
+    private var pendingKey: String? = null                     // one idempotency key per user intent
+
+    fun onAmountChange(text: String) {
+        pendingKey = null                                      // a new amount is a new intent
+        _state.update { it.copy(amount = text, amountError = null) }
+    }
 
     fun onSend(payeeId: String) {
-        if (_state.value.sending) return                       // no double submit
+        val before = _state.getAndUpdate { it.copy(sending = true) }   // set the flag now, not inside the coroutine
+        if (before.sending) return                             // no double submit
+        val key = pendingKey ?: UUID.randomUUID().toString().also { pendingKey = it }
         viewModelScope.launch {
-            _state.update { it.copy(sending = true) }
-            val result = sendMoney(payeeId, _state.value.amount)
+            val result = sendMoney(payeeId, before.amount, key)
+            if (result != TransferResult.NetworkError) pendingKey = null   // an unknown outcome is retried with the same key
             _state.update { it.copy(sending = false, result = result) }
         }
     }
@@ -1792,7 +1802,7 @@ class TransferViewModel(private val payeeId: String, private val sendMoney: Send
         val before = _state.value
         _state.update { reduce(it, e) }
         if (e is TransferEvent.SendClicked &amp;&amp; !before.sending) viewModelScope.launch {
-            onEvent(TransferEvent.Completed(sendMoney(payeeId, before.amount)))
+            onEvent(TransferEvent.Completed(sendMoney(payeeId, before.amount, UUID.randomUUID().toString())))
         }
     }
 }
@@ -1964,10 +1974,10 @@ class SendMoneyUseCase @Inject constructor(
     private val payments: PaymentsRepository,
     private val limits: LimitsPolicy,
 ) {
-    suspend operator fun invoke(payeeId: String, amountText: String): TransferResult {
+    suspend operator fun invoke(payeeId: String, amountText: String, idempotencyKey: String): TransferResult {
         val amount = Money.parse(amountText) ?: return TransferResult.Declined(&quot;Enter an amount&quot;)
         limits.check(amount)?.let { return TransferResult.Declined(it) }
-        return payments.transfer(payeeId, amount)
+        return payments.transfer(payeeId, amount, idempotencyKey)
     }
 }
 </code></pre>
@@ -2077,11 +2087,11 @@ val TransferViewModelFactory = viewModelFactory {
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : PaymentsRepository {
 
-    override suspend fun transfer(payeeId: String, amount: Money): TransferResult =
+    override suspend fun transfer(payeeId: String, amount: Money, idempotencyKey: String): TransferResult =
         withContext(io) {                               // main-safe: callers need not care about threads
             try {
-                val dto = api.transfer(TransferRequest(payeeId, amount.minor))
-                dao.upsert(dto.toEntity())
+                val dto = api.transfer(idempotencyKey, TransferRequest(payeeId, amount.minor))
+                dao.upsert(listOf(dto.toEntity(payeeId, amount)))
                 TransferResult.Success(dto.reference)
             } catch (e: IOException) {
                 TransferResult.NetworkError
@@ -2161,8 +2171,10 @@ class PayeeSearchViewModel @Inject constructor(private val payees: PayeesReposit
         .debounce(300)
         .map { it.trim() }
         .distinctUntilChanged()
-        .mapLatest { q -&gt; if (q.length &lt; 2) emptyList() else payees.search(q) }   // a new query cancels the old call
-        .catch { emit(emptyList()) }
+        .mapLatest { q -&gt;                                                         // a new query cancels the old call
+            if (q.length &lt; 2) emptyList()
+            else try { payees.search(q) } catch (e: IOException) { emptyList() }  // a failed search must not end the flow
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
 </code></pre>
@@ -2282,8 +2294,10 @@ object DatabaseModule {
 interface OutboxDao {
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insert(item: OutboxEntity)
     @Query(&quot;SELECT * FROM outbox WHERE state = 'QUEUED' ORDER BY createdAt&quot;) suspend fun queued(): List&lt;OutboxEntity&gt;
-    @Query(&quot;UPDATE outbox SET state = 'CONFIRMED' WHERE idempotencyKey = :key&quot;) suspend fun markConfirmed(key: String)
-    @Query(&quot;UPDATE outbox SET state = 'FAILED' WHERE idempotencyKey = :key&quot;) suspend fun markFailed(key: String)
+    @Query(&quot;UPDATE outbox SET state = 'CONFIRMED', reference = :reference WHERE idempotencyKey = :key&quot;)
+    suspend fun markConfirmed(key: String, reference: String)
+    @Query(&quot;UPDATE outbox SET state = 'FAILED', failureReason = :reason WHERE idempotencyKey = :key&quot;)
+    suspend fun markFailed(key: String, reason: String?)
 }
 
 class LocalTransferStore @Inject constructor(private val db: KoshDatabase) {
@@ -2385,7 +2399,10 @@ fun retrofit(client: OkHttpClient): Retrofit {
 <h3>Errors as types</h3>
 <pre><code class="language-kotlin">sealed interface ApiResult&lt;out T&gt; {
     data class Ok&lt;T&gt;(val value: T) : ApiResult&lt;T&gt;
-    data class Rejected(val code: Int, val reason: String?) : ApiResult&lt;Nothing&gt;   // server said no
+    data class Rejected(val code: Int, val reason: String?) : ApiResult&lt;Nothing&gt; { // server said no
+        /** Only a definitive 4xx is a verdict. 401, 408, 429 and every 5xx may succeed later with the same key. */
+        val isFinal: Boolean get() = code in 400..499 &amp;&amp; code !in setOf(401, 408, 429)
+    }
     data object Unreachable : ApiResult&lt;Nothing&gt;                                   // never got an answer
     data object Unknown : ApiResult&lt;Nothing&gt;                                       // sent, outcome not known
 }
@@ -2394,10 +2411,12 @@ suspend fun &lt;T&gt; apiCall(block: suspend () -&gt; T): ApiResult&lt;T&gt; = t
     ApiResult.Ok(block())
 } catch (e: HttpException) {
     ApiResult.Rejected(e.code(), e.response()?.errorBody()?.string())
-} catch (e: SocketTimeoutException) {
-    ApiResult.Unknown
+} catch (e: UnknownHostException) {
+    ApiResult.Unreachable                     // no DNS answer: nothing was sent
+} catch (e: ConnectException) {
+    ApiResult.Unreachable                     // no connection: nothing was sent
 } catch (e: IOException) {
-    ApiResult.Unreachable
+    ApiResult.Unknown                         // timeouts, resets, a cut-off response: the request may have arrived
 }
 </code></pre>
 <h3>Idempotency</h3>
@@ -2521,6 +2540,8 @@ data class OutboxEntity(
     val payeeId: String, val amountMinor: Long,
     val state: String,                          // QUEUED, SENT, CONFIRMED, FAILED
     val createdAt: Long, val attempts: Int = 0,
+    val reference: String? = null,              // set when CONFIRMED
+    val failureReason: String? = null,          // set when FAILED
 )
 </code></pre>
 <p>On confirm, one database transaction inserts the outbox row and a <code>PENDING</code> transaction row. The screen shows the pending payment immediately, clearly labelled.</p>
@@ -2535,12 +2556,23 @@ class OutboxWorker @AssistedInject constructor(
         for (item in outbox.queued()) {
             when (val r = apiCall { api.transfer(item.idempotencyKey, item.toRequest()) }) {
                 is ApiResult.Ok -&gt; outbox.markConfirmed(item.idempotencyKey, r.value.reference)
-                is ApiResult.Rejected -&gt; outbox.markFailed(item.idempotencyKey, r.reason)
+                is ApiResult.Rejected -&gt;
+                    if (r.isFinal) outbox.markFailed(item.idempotencyKey, r.reason)   // the server refused this transfer
+                    else return Result.retry()            // 401, 408, 429, 5xx: not a verdict; same key, later
                 else -&gt; return Result.retry()             // unreachable or unknown: same key, later
             }
         }
         return Result.success()
     }
+
+    /** Expedited work runs as a foreground service before Android 12, so it must supply a notification. */
+    override suspend fun getForegroundInfo() = syncForegroundInfo(applicationContext)
+}
+
+fun syncForegroundInfo(context: Context): ForegroundInfo {
+    val notification = NotificationCompat.Builder(context, &quot;sync&quot;)       // the channel is created at app start
+        .setSmallIcon(R.drawable.ic_stat_kosh).setContentTitle(&quot;Finishing your transfer&quot;).setOngoing(true).build()
+    return ForegroundInfo(7, notification)                               // only ever shown below Android 12
 }
 
 fun enqueueOutbox(context: Context) {
@@ -2643,7 +2675,7 @@ fun schedulePeriodicSync(context: Context) {
 <h3>One connection pool, several clients</h3>
 <pre><code class="language-kotlin">@Provides @Singleton
 fun baseClient(): OkHttpClient = OkHttpClient.Builder()
-    .callTimeout(30, TimeUnit.SECONDS).addInterceptor(TelemetryInterceptor()).build()
+    .callTimeout(30, TimeUnit.SECONDS).addInterceptor(TelemetryInterceptor(BuildConfig.VERSION_NAME)).build()
 
 @Provides @Singleton @Banking
 fun bankingClient(base: OkHttpClient, auth: BearerInterceptor, refresher: TokenAuthenticator) =
@@ -2886,7 +2918,7 @@ class DashboardViewModel @Inject constructor(loadDashboard: LoadDashboardUseCase
 }
 
 val prices: Flow&lt;PriceTick&gt; = client.priceStream(URL)
-    .retryWhen { _, attempt -&gt; delay(backoffWithJitter(attempt)); true }
+    .retryWhen { _, attempt -&gt; delay(backoffWithJitter(attempt.toInt())); true }
     .conflate()                                   // UI only needs the latest tick
 </code></pre>
 <p>Collect it with <code>collectAsStateWithLifecycle()</code> and the socket opens when the screen is visible and closes when it is not, with no lifecycle code.</p>
@@ -2939,8 +2971,8 @@ fun backoffWithJitter(attempt: Int): Long {
         .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
         .build()
-    // many pushes in a burst collapse into one sync
-    WorkManager.getInstance(context).enqueueUniqueWork(&quot;push-sync&quot;, ExistingWorkPolicy.KEEP, request)
+    // one at a time, in order. KEEP would drop a push that arrives while a sync is already running
+    WorkManager.getInstance(context).enqueueUniqueWork(&quot;push-sync&quot;, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
 }
 
 @HiltWorker
@@ -2961,6 +2993,8 @@ class PushSyncWorker @AssistedInject constructor(
         }
         return Result.success()
     }
+
+    override suspend fun getForegroundInfo() = syncForegroundInfo(ctx)   // expedited, so required below Android 12
 }
 </code></pre>
 <h2>End-to-end flow: Asha pays you ₹500 while Kosh is closed</h2>
@@ -3422,6 +3456,7 @@ fun GlassSurface(modifier: Modifier = Modifier, shape: Shape = RoundedCornerShap
 <pre><code class="language-kotlin">@Composable
 fun HomeWithGlassBar(state: HomeUiState) {
     val haze = remember { HazeState() }
+    val tint = MaterialTheme.colorScheme.surface.copy(alpha = .55f)  // read here: the hazeEffect block is not composable
     Box(Modifier.fillMaxSize()) {
         TransactionsList(state, Modifier.hazeSource(haze))          // what will be seen through the glass
 
@@ -3430,7 +3465,7 @@ fun HomeWithGlassBar(state: HomeUiState) {
                 .clip(RoundedCornerShape(28.dp))
                 .hazeEffect(haze) {                                  // blur + tint + noise
                     blurRadius = 20.dp
-                    tints = listOf(HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = .55f)))
+                    tints = listOf(HazeTint(tint))
                     noiseFactor = .08f
                 }
         )
@@ -3944,7 +3979,7 @@ subprojects {
 <pre><code class="language-kotlin">@get:Rule val compose = createComposeRule()
 
 @Test fun showsErrorUnderAmount() {
-    compose.setContent { KoshTheme { TransferScreen(TransferUiState(amountError = &quot;Not enough balance&quot;), {}) } }
+    compose.setContent { KoshTheme { TransferScreen(TransferUiState(amount = &quot;999999&quot;, amountError = &quot;Not enough balance&quot;), onEvent = {}, onDone = {}) } }
     compose.onNodeWithText(&quot;Not enough balance&quot;).assertIsDisplayed()
     compose.onNodeWithText(&quot;Send&quot;).assertIsEnabled()
 }
@@ -3961,8 +3996,9 @@ class FakePaymentsRepository(private val delayMs: Long = 0) : PaymentsRepository
     var next: TransferResult = TransferResult.Success(&quot;KX-1&quot;)
     val seenKeys = mutableListOf&lt;String&gt;()
 
-    override suspend fun transfer(payeeId: String, amount: Money): TransferResult {
+    override suspend fun transfer(payeeId: String, amount: Money, idempotencyKey: String): TransferResult {
         transferCalls++
+        seenKeys += idempotencyKey
         delay(delayMs)                                  // virtual time under runTest
         return next
     }
